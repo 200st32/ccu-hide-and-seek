@@ -613,7 +613,7 @@ for (const f of [1, 2, 3]){
 }
 // roofs: 4-storey parts at L[4], south walkway + east block at L[3]
 for (const pts of [rect(WX, -BZ, NX1, NGZ), rect(BXW, TN, WX, SLOT[0]), rect(BXW, SLOT[1], WX, C2Z[1]), rect(BXW, C2Z[1], STW[0], BZ), rect(STW[1], C2Z[1], WX, BZ), rect(WX, NGZ, WGX, BZ), OUT_NE]){ solid(pts, L[4] - SL, L[4], 'slab'); floorF(pts, L[4] + 0.01, 'roof'); }
-for (const pts of [rect(WGX, SGZ, EX, BZ), rect(EX, EZ, BXE, BZ)]){ solid(pts, L[3] - SL, L[3], 'slab'); floorF(pts, L[3] + 0.01, 'roof'); }
+for (const pts of [rect(EX, EZ, BXE, BZ)]){ solid(pts, L[3] - SL, L[3], 'slab'); floorF(pts, L[3] + 0.01, 'roof'); }   // south walkways: open to the atrium roof
 // gallery / walkway floor finishes
 floorF(rect(WX, NZ, EX, BZ), 0.015, 'pave');
 floorF(rect(BXW, C1Z[0], WX, C1Z[1]), 0.015, 'red'); floorF(rect(BXW, C2Z[0], WX, C2Z[1]), 0.015, 'red');
@@ -712,14 +712,11 @@ wallLine(BXE, EZ, BXE, BZ, L[2], L[3], 'brickWin', [], EXT);
 wseg(EX, EZ, BXE, EZ, L[3], L[4], 'brick');
 // roof parapets
 for (const [a, b] of [[[BXW,TN], [WX,TN]], [[WX,TN], [WX,-BZ]], [[WX,-BZ], P1], [P1, P2], [P2, P3], [P3, P4], [P4, [BXE, EZ]], [[BXW,TN],[BXW,SLOT[0]]], [[BXW,SLOT[1]],[BXW,BZ]], [[BXW,BZ],[WX,BZ]], [[BXW,SLOT[0]],[WX,SLOT[0]]], [[BXW,SLOT[1]],[WX,SLOT[1]]]]) wseg(...a, ...b, L[4], L[4] + 0.9, 'brick');
-for (const [a, b] of [[[EX,BZ],[BXE,BZ]], [[BXE,EZ],[BXE,BZ]], [[WGX,BZ],[EX,BZ]]]) wseg(...a, ...b, L[3], L[3] + 0.9, 'brick');
+for (const [a, b] of [[[EX,BZ],[BXE,BZ]], [[BXE,EZ],[BXE,BZ]]]) wseg(...a, ...b, L[3], L[3] + 0.9, 'brick');
 sign('活動中心', 'Student Activity Center', CM[0] + CN[0]*0.2, L[2] + 3.5, CM[1] + CN[1]*0.2, Math.atan2(CN[0], CN[1]), 6.5, 1.3, '#4a4a46');
 
 // ---------- atrium: pillars, railings ----------
-for (const x of [-15, -7, 1, 9, 22]) pillar(x, NGZ, 0, L[4]);
-for (const z of [NGZ, -6, 8, 14, SGZ]) pillar(WGX, z, 0, L[4]);
-for (const x of [-8, 0, 8, 24, 32]) pillar(x, SGZ, 0, L[3]);
-for (const x of [-20, -12, -4, 4, 12, 20, 28, 36]) pillar(x, BZ, 0, L[3]);
+for (const z of [NGZ, -6, 8, 14, SGZ]) pillar(WGX, z, 0, L[4]);     // west gallery; the north / south rows are the tall roof columns (below)
 // bridge: one diagonal 3F bridge (green in the drawing), north gallery → south-west corner of the atrium
 const BR3 = [[18.5, NGZ], [WGX, 19.5]];
 const BRIDGES = [];
@@ -791,16 +788,53 @@ function switchback(o){
 switchback({O:TOWER_C, a:[1, 0], s:[0, 1], near:TOWER_C[0] - WGX, run:4, W:CSW, semi:true, open:true, floors:3});
 zone('旋轉梯 Circle Stair', 0, WGX, TOWER_C[1] - CSW, TOWER_C[0] + 4 + CSW, TOWER_C[1] + CSW, null, -0.5, 13);
 
-// ---------- glass vault over the atrium ----------
+// ---------- atrium roof: sawtooth (folded) glass + steel space frame on tall slender round columns (instanced) ----------
+// One module = one fold (valley → ridge → valley) running north–south over the atrium and the open south walkways.
+const ROOF_N = 8, ROOF_MW = (EX - WGX) / ROOF_N, ROOF_YV = L[4] + 2.5, ROOF_YR = ROOF_YV + 2.4, ROOF_YB = ROOF_YV - 1.4;
+const ROOF_Z = [NGZ - 0.6, BZ + 1.2], ROOF_DZ = 2.5;
+const RCOL_R = 0.42;                                                  // tall column radius
+function barGeo(a, b, w, h = w){                                      // like bar(), but returns the geometry
+  const d = new THREE.Vector3(b[0]-a[0], b[1]-a[1], b[2]-a[2]), len = d.length(), g = new THREE.BoxGeometry(len, h, w);
+  _q.setFromUnitVectors(XAXIS, d.normalize());
+  return g.applyMatrix4(_m4.compose(new THREE.Vector3((a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2), _q, ONE)).toNonIndexed();
+}
+const ROOF_INST = [];                                                 // instanced meshes (counted in the stats overlay)
 {
-  const VX0 = WGX, VX1 = EX, ZC = (NGZ + SGZ)/2, VW = (SGZ - NGZ)/2, RV = (VW*VW + 9) / 6, cy = L[4] + 3 - RV, d = Math.asin(VW / RV), len = VX1 - VX0;
-  const g = new THREE.CylinderGeometry(RV, RV, len, 40, 1, true, Math.PI/2 - d, 2*d);
-  g.rotateZ(Math.PI/2); g.translate((VX0 + VX1)/2, cy, ZC); put(g, 'roofGlass', false);
-  for (let x = VX0; x <= VX1 + 0.01; x += len/10){
-    let prev = null;
-    for (let i = 0; i <= 10; i++){ const a = -d + 2*d*i/10, p = [x, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)]; if (prev) bar(prev, p, 0.14, 'steel', 0.3); prev = p; }
+  const [Z0, Z1] = ROOF_Z, M = ROOF_MW, H2 = M/2, V = ROOF_YV, R = ROOF_YR, B = ROOF_YB;
+  // glass: two sloped panels per module
+  const gp = [0,V,Z0, H2,R,Z0, H2,R,Z1,  0,V,Z0, H2,R,Z1, 0,V,Z1,   H2,R,Z0, M,V,Z0, M,V,Z1,  H2,R,Z0, M,V,Z1, H2,R,Z1];
+  const glassG = new THREE.BufferGeometry(); glassG.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3)); glassG.computeVertexNormals();
+  // steel: valley + ridge beams, purlins + mullions on the glass, a bottom chord and diagonals below (space frame)
+  const st = [barGeo([0,V,Z0], [0,V,Z1], 0.28, 0.32), barGeo([H2,R,Z0], [H2,R,Z1], 0.22, 0.26), barGeo([H2,B,Z0], [H2,B,Z1], 0.16)];
+  for (const x of [M/4, 3*M/4]){ const y = (V + R)/2; st.push(barGeo([x,y,Z0], [x,y,Z1], 0.07)); }
+  for (let z = Z0; z <= Z1 + 0.01; z += ROOF_DZ){
+    st.push(barGeo([0,V,z], [H2,R,z], 0.09), barGeo([H2,R,z], [M,V,z], 0.09));                  // purlins (frame shadow lines)
+    st.push(barGeo([0,B + 0.7,z], [M,B + 0.7,z], 0.08));                                       // cross tie
+    st.push(barGeo([H2,B,z], [H2,R,z], 0.08));                                                 // vertical strut under the ridge
+    const zn = Math.min(Z1, z + ROOF_DZ/2);
+    st.push(barGeo([H2,B,z], [0,V,zn], 0.07), barGeo([H2,B,z], [M,V,zn], 0.07));                 // diagonals to the valleys
   }
-  for (const a of [-d, -d/2, 0, d/2, d]) bar([VX0, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], [VX1, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], 0.1, 'steel');
+  const steelG = mergeGeometries(st, false);
+  const glassM = new THREE.MeshStandardMaterial({color:0xcfe9ef, transparent:true, opacity:0.2, roughness:0.05, metalness:0.1, depthWrite:false, side:THREE.DoubleSide});
+  const gIM = new THREE.InstancedMesh(glassG, glassM, ROOF_N), sIM = new THREE.InstancedMesh(steelG, MAT.steel, ROOF_N);
+  const T = new THREE.Matrix4();
+  for (let i = 0; i < ROOF_N; i++){ T.makeTranslation(WGX + i*M, 0, 0); gIM.setMatrixAt(i, T); sIM.setMatrixAt(i, T); }
+  gIM.renderOrder = 2; gIM.castShadow = false; gIM.receiveShadow = false;                      // sunlight passes the glass,
+  sIM.castShadow = true; sIM.receiveShadow = true;                                             // the steel frame casts shadows
+  scene.add(gIM, sIM); ROOF_INST.push(gIM, sIM);
+  // tall slender round columns under the valleys: north edge, inner south edge (walkway line) and outer south face
+  const cols = [], vx = i => WGX + i*M;
+  for (let i = 1; i < ROOF_N; i++){
+    if (vx(i) < NX1 - 4 && Math.abs(vx(i) - BR3[0][0]) > 3.5) cols.push([vx(i), NGZ]);           // not on the 3F bridge, not in the grand stair
+    cols.push([vx(i), SGZ]);
+  }
+  for (let i = 0; i <= ROOF_N; i++) cols.push([vx(i), BZ]);
+  const cG = new THREE.CylinderGeometry(RCOL_R, RCOL_R*1.08, V, 18); cG.translate(0, V/2, 0);
+  const capG = mergeGeometries([[1,1],[1,-1],[-1,1],[-1,-1]].map(([a, c]) => barGeo([0, V - 1.6, 0], [a*1.6, V, c*1.6], 0.1)), false);  // branching arms at the top
+  const cIM = new THREE.InstancedMesh(cG, MAT.concrete, cols.length), kIM = new THREE.InstancedMesh(capG, MAT.steel, cols.length);
+  cols.forEach(([x, z], i) => { T.makeTranslation(x, 0, z); cIM.setMatrixAt(i, T); kIM.setMatrixAt(i, T); col(circlePts(x, z, RCOL_R, 10), 0, V); });
+  cIM.castShadow = cIM.receiveShadow = kIM.castShadow = true;
+  scene.add(cIM, kIM); ROOF_INST.push(cIM, kIM);
 }
 
 // ---------- entrance canopy outside the main doors (street level) ----------
