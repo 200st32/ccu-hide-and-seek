@@ -8,6 +8,8 @@ cd "web"
 python3 -m http.server 8000
 # open http://localhost:8000
 ```
+## Run on web
+https://200st32.github.io/ccu-hide-and-seek/web/sac.html
 
 ## Layout
 ```
