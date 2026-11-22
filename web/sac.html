@@ -46,6 +46,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 #jumpBtn{position:fixed;right:calc(22px + env(safe-area-inset-right));bottom:calc(28px + env(safe-area-inset-bottom));width:76px;height:76px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:rgba(0,0,0,.35);color:#fff;font:800 15px/1.1 "Noto Sans TC",sans-serif;display:none;touch-action:none;user-select:none;-webkit-user-select:none;z-index:3}
 #jumpBtn.on{background:rgba(255,255,255,.4)}
 #mhelp{left:50%;transform:translateX(-50%);bottom:112px;font-size:12px;display:none;text-align:center}
+#stats{position:fixed;left:calc(10px + env(safe-area-inset-left));top:calc(64px + env(safe-area-inset-top));z-index:4;background:rgba(0,0,0,.7);color:#bff5c8;font:12px/1.45 ui-monospace,Menlo,monospace;padding:6px 10px;border-radius:6px;white-space:pre;display:none;pointer-events:none}
 #testout{position:fixed;left:10px;top:60px;z-index:9;background:#fff;color:#000;font:12px/1.4 monospace;padding:8px;max-width:90vw;white-space:pre-wrap;display:none}
 @media(max-width:600px),(max-height:500px){#mini{width:160px;height:100px}#help{display:none}#title b{font-size:18px}#title span{display:none}#where{top:auto;bottom:calc(40px + env(safe-area-inset-bottom));font-size:13px;padding:4px 12px}#info{display:none}}
 @media(max-height:500px){#mini{width:136px;height:85px}#start div{padding:18px 22px}#start h1{font-size:22px}#start p{margin-bottom:10px}}
@@ -75,6 +76,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 <button id="jumpBtn" aria-label="Jump">跳<br>Jump</button>
 <div class="hud" id="mhelp">左半邊拖曳移動（推到底衝刺）· 右半邊拖曳看 <br>Drag left side to move (push far to sprint) · drag right side to look</div>
 <pre id="testout"></pre>
+<pre id="stats"></pre>
 <div id="start"><div><h1>中正大學 活動中心</h1><p>Explore all four floors of the Student Activity Center. The main entrance is on 3F. 正門在三樓，小吃街在一樓。</p><button id="go">開始 Start</button><a href="index.html">← Whole campus 全校園</a></div></div>
 
 <script type="module">
@@ -93,9 +95,9 @@ if (Q.has('gpu') && THREE.WebGPURenderer){
   await renderer.init();
   backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGPU build → WebGL2 fallback';
 } else renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+renderer.setPixelRatio(Q.has('pr') ? +Q.get('pr') : Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));   // ?pr= overrides (benchmarks)
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = Q.get('shadowtype') === 'pcf' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;          // sRGB output
 renderer.toneMapping = THREE.ACESFilmicToneMapping;          // ACES filmic tone mapping
 const EXPOSURE = 0.9; renderer.toneMappingExposure = EXPOSURE;
@@ -112,7 +114,7 @@ try {
   const hdr = await new RGBELoader().loadAsync('tex/sky_1k.hdr');
   hdr.mapping = THREE.EquirectangularReflectionMapping;
   const pm = new THREE.PMREMGenerator(renderer);
-  scene.environment = pm.fromEquirectangular(hdr).texture; pm.dispose();
+  if (!Q.has('noenv')) scene.environment = pm.fromEquirectangular(hdr).texture; pm.dispose();
   scene.environmentIntensity = ENV_INT;
   scene.background = hdr; scene.backgroundIntensity = 0.9;
 } catch (e){ console.warn('HDRI not loaded', e); }
@@ -121,7 +123,7 @@ scene.add(new THREE.AmbientLight(0xfff4e6, AMB_INT));        // small fill so de
 const sun = new THREE.DirectionalLight(0xfff1d6, SUN_INT);
 sun.position.set(55, 95, 35); sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(MOBILE ? 2048 : 4096, MOBILE ? 2048 : 4096);
+{ const sm = Q.has('shadowmap') ? +Q.get('shadowmap') : (MOBILE ? 2048 : 4096); sun.shadow.mapSize.set(sm, sm); if (sm === 0) sun.castShadow = false; }
 Object.assign(sun.shadow.camera, {left:-100, right:100, top:100, bottom:-100, near:10, far:320});
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 scene.add(sun, sun.target);
@@ -1569,7 +1571,7 @@ function step(dt){
   stamBar.style.width = (player.stamina*100) + '%';
 }
 // ---------- screen-space ambient occlusion: N8AO pass → OutputPass (tone mapping + sRGB). WebGL only; ?noao turns it off ----------
-const AO_RADIUS = 2.5, AO_FALLOFF = 1.0, AO_INTENSITY = 5.0, AO_SAMPLES = MOBILE ? 8 : 16, AO_DENOISE = MOBILE ? 4 : 8;
+const AO_RADIUS = 2.5, AO_FALLOFF = 1.0, AO_INTENSITY = 5.0, AO_SAMPLES = +(Q.get('aos') || (MOBILE ? 8 : 16)), AO_DENOISE = +(Q.get('aod') || (MOBILE ? 4 : 8));
 let composer = null, aoPass = null;
 if (!Q.has('noao') && !Q.has('gpu')){
   try {
@@ -1592,6 +1594,24 @@ addEventListener('resize', resize); resize();
 addEventListener('orientationchange', () => { for (const t of [100, 300, 700]) setTimeout(resize, t); });   // phones report the new size late
 window.visualViewport?.addEventListener('resize', resize);
 
+// ---------- F3 stats overlay: fps, frame time, draw calls, triangles, textures, programs (?stats shows it on load) ----------
+const statsEl = document.getElementById('stats');
+let statsOn = Q.has('stats'), statsT = 0, statsN = 0, statsMs = 0;
+statsEl.style.display = statsOn ? 'block' : 'none';
+addEventListener('keydown', e => { if (e.code === 'F3'){ e.preventDefault(); statsOn = !statsOn; statsEl.style.display = statsOn ? 'block' : 'none'; } });
+renderer.info.autoReset = false;                                     // count every pass of a frame (shadow, AO, output)
+function frameStats(){
+  const i = renderer.info;
+  return {calls:i.render.calls, tris:i.render.triangles, textures:i.memory.textures, geometries:i.memory.geometries, programs:i.programs?.length ?? 0};
+}
+function drawStats(dtReal){
+  statsT += dtReal; statsN++; statsMs += dtReal;
+  if (statsT < 0.5) return;
+  const st = frameStats(), fps = statsN / statsT;
+  statsEl.textContent = `${fps.toFixed(0)} fps  ${(1000*statsMs/statsN).toFixed(1)} ms\ndraw calls ${st.calls}\ntriangles  ${(st.tris/1000).toFixed(1)}k\ntextures   ${st.textures}\ngeometries ${st.geometries}\nprograms   ${st.programs}\npixel ratio ${renderer.getPixelRatio()}  ${backend}${composer ? ' + AO' : ''}`;
+  statsT = statsN = statsMs = 0;
+}
+let lastReal = performance.now();
 let frame = 0, fpsT = 0, fpsN = 0, lastFloor = -1, lastPlace = '';
 function loop(){
   const dt = Math.min(0.05, clock.getDelta());
@@ -1602,7 +1622,9 @@ function loop(){
     if (name !== lastPlace){ placeEl.textContent = name; lastPlace = name; }
   }
   drawMini(lastFloor < 0 ? 2 : Math.min(3, lastFloor));
+  renderer.info.reset();
   if (composer) composer.render(); else renderer.render(scene, camera);
+  { const now = performance.now(); if (statsOn) drawStats((now - lastReal)/1000); if (bench) benchFrame(now - lastReal); lastReal = now; }
   fpsN++; fpsT += dt;
   if (fpsT > 1){ info.textContent = `${backend} · ${Math.round(fpsN / fpsT)} fps · ${Math.round(TRIS/1000)}k tris`; fpsT = 0; fpsN = 0; }
 }
@@ -1706,6 +1728,29 @@ function runTests(){
   player.pos.set(...SPAWN);
 }
 if (Q.has('test')) runTests();
+
+// ---------- ?bench=x,y,z,yaw,pitch,dist: 1 s warm-up, then 6 s spinning the camera 360°; reports fps / frame times / draw calls ----------
+let bench = null;
+function benchFrame(ms){
+  bench.t += ms;
+  if (bench.t < 1000) return;
+  bench.ms.push(ms); yaw = bench.yaw0 + TAU * Math.min(1, (bench.t - 1000) / 6000);
+  const st = frameStats(); bench.calls = Math.max(bench.calls, st.calls); bench.tris = Math.max(bench.tris, st.tris); bench.tex = st.textures;
+  if (bench.t < 7000) return;
+  const a = bench.ms.slice().sort((x, y) => x - y), avg = a.reduce((x, y) => x + y, 0) / a.length;
+  const gl = renderer.getContext?.(), dbg = gl?.getExtension?.('WEBGL_debug_renderer_info');
+  const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?';
+  const out = `BENCH ${innerWidth}x${innerHeight} @${renderer.getPixelRatio()} ${composer ? '+AO' : 'noAO'} gpu=${gpu}\n` +
+    `frames ${a.length}  avg ${(1000/avg).toFixed(1)} fps (${avg.toFixed(2)} ms)  p50 ${a[a.length >> 1].toFixed(2)} ms  p95 ${a[Math.floor(a.length*0.95)].toFixed(2)} ms\n` +
+    `max draw calls ${bench.calls}  max triangles ${(bench.tris/1000).toFixed(1)}k  textures ${bench.tex}`;
+  const el = document.getElementById('testout'); el.textContent = out; el.style.display = 'block'; console.log(out);
+  bench = null;
+}
+if (Q.has('bench')){
+  const [x, y, z, yw, pt, ds] = Q.get('bench').split(',').map(Number);
+  start(); player.pos.set(x, y, z); yaw = yw; pitch = pt; dist = ds; player.heading = yaw + Math.PI;
+  bench = {t:0, ms:[], yaw0:yw, calls:0, tris:0, tex:0};
+}
 </script>
 </body>
 </html>
