@@ -57,7 +57,9 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
   const base = 'https://cdn.jsdelivr.net/npm/three@0.170.0/';
   document.write('<script type="importmap">' + JSON.stringify({imports:{
     three: base + (gpu ? 'build/three.webgpu.js' : 'build/three.module.js'),
-    'three/addons/': base + 'examples/jsm/'}}) + '<\/script>');
+    'three/addons/': base + 'examples/jsm/', 'three/examples/jsm/': base + 'examples/jsm/',
+    postprocessing: 'https://cdn.jsdelivr.net/npm/postprocessing@6.39.4/build/index.js',
+    n8ao: 'https://cdn.jsdelivr.net/npm/n8ao@2.0.1/dist/N8AO.js'}}) + '<\/script>');
 })();
 </script>
 </head>
@@ -78,6 +80,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 <script type="module">
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 const Q = new URLSearchParams(location.search);
 const canvas = document.getElementById('game');
@@ -93,6 +96,9 @@ if (Q.has('gpu') && THREE.WebGPURenderer){
 renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;          // sRGB output
+renderer.toneMapping = THREE.ACESFilmicToneMapping;          // ACES filmic tone mapping
+const EXPOSURE = 0.9; renderer.toneMappingExposure = EXPOSURE;
 
 const scene = new THREE.Scene();
 const SKY = 0xa8d8f0;
@@ -100,9 +106,19 @@ scene.background = new THREE.Color(SKY);
 scene.fog = new THREE.Fog(SKY, 140, 420);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 900);
 
-scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a55, 1.0));
-scene.add(new THREE.AmbientLight(0xfff4e6, 0.55));            // keeps interiors readable under 4 storeys of slabs
-const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+// image-based lighting: CC0 outdoor HDRI (Poly Haven kloofendal_48d_partly_cloudy_puresky) as environment + visible sky
+const ENV_INT = 0.35, HEMI_INT = 0.15, AMB_INT = 0.12, SUN_INT = 2.6;
+try {
+  const hdr = await new RGBELoader().loadAsync('tex/sky_1k.hdr');
+  hdr.mapping = THREE.EquirectangularReflectionMapping;
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromEquirectangular(hdr).texture; pm.dispose();
+  scene.environmentIntensity = ENV_INT;
+  scene.background = hdr; scene.backgroundIntensity = 0.9;
+} catch (e){ console.warn('HDRI not loaded', e); }
+scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a55, HEMI_INT));
+scene.add(new THREE.AmbientLight(0xfff4e6, AMB_INT));        // small fill so deep interiors stay readable
+const sun = new THREE.DirectionalLight(0xfff1d6, SUN_INT);
 sun.position.set(55, 95, 35); sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
 sun.shadow.mapSize.set(MOBILE ? 2048 : 4096, MOBILE ? 2048 : 4096);
@@ -1552,9 +1568,25 @@ function step(dt){
   o.visible = d > 0.8;                                                              // hide the avatar when the camera is inside it
   stamBar.style.width = (player.stamina*100) + '%';
 }
+// ---------- screen-space ambient occlusion: N8AO pass → OutputPass (tone mapping + sRGB). WebGL only; ?noao turns it off ----------
+const AO_RADIUS = 2.5, AO_FALLOFF = 1.0, AO_INTENSITY = 5.0, AO_SAMPLES = MOBILE ? 8 : 16, AO_DENOISE = MOBILE ? 4 : 8;
+let composer = null, aoPass = null;
+if (!Q.has('noao') && !Q.has('gpu')){
+  try {
+    const [{ N8AOPass }, { EffectComposer }, { OutputPass }] = await Promise.all([
+      import('n8ao'), import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/OutputPass.js')]);
+    composer = new EffectComposer(renderer);
+    aoPass = new N8AOPass(scene, camera, innerWidth, innerHeight);
+    Object.assign(aoPass.configuration, {aoRadius:AO_RADIUS, distanceFalloff:AO_FALLOFF, intensity:AO_INTENSITY, aoSamples:AO_SAMPLES,
+      denoiseSamples:AO_DENOISE, denoiseRadius:12, halfRes:true, depthAwareUpsampling:true, gammaCorrection:false, color:new THREE.Color(0x1a1410)});
+    composer.addPass(aoPass); composer.addPass(new OutputPass());
+    if (Q.has('aoview')) aoPass.setDisplayMode('AO');                     // debug: show the AO buffer only
+  } catch (e){ console.warn('AO disabled', e); composer = null; }
+}
 function resize(){
   const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  composer?.setPixelRatio(renderer.getPixelRatio()); composer?.setSize(w, h);
 }
 addEventListener('resize', resize); resize();
 addEventListener('orientationchange', () => { for (const t of [100, 300, 700]) setTimeout(resize, t); });   // phones report the new size late
@@ -1570,7 +1602,7 @@ function loop(){
     if (name !== lastPlace){ placeEl.textContent = name; lastPlace = name; }
   }
   drawMini(lastFloor < 0 ? 2 : Math.min(3, lastFloor));
-  renderer.render(scene, camera);
+  if (composer) composer.render(); else renderer.render(scene, camera);
   fpsN++; fpsT += dt;
   if (fpsT > 1){ info.textContent = `${backend} · ${Math.round(fpsN / fpsT)} fps · ${Math.round(TRIS/1000)}k tris`; fpsT = 0; fpsN = 0; }
 }
