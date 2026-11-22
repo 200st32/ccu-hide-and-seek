@@ -26,16 +26,49 @@ Owner: Kai. Read `docs/DESIGN.md` for the full game design.
   only sends each client what it may see (anti-cheat).
 - Physics stays on CPU (own collision now, **Rapier** WASM later for interiors/stairs). No GPU physics.
 - Rendering: switch to Three.js `WebGPURenderer` (WebGL2 fallback) only when the scene gets heavy (e.g. Minecraft import).
+  `sac.html` already supports it behind `?gpu`.
 - Don't copy Google Street View images or Minecraft/Mojang textures into the game.
 
-## Next task (in progress): one detailed building
-Kai wants to scope down to **a single building** with real exterior + interior as the play area (rest of campus = scenery).
-Candidate: **活動中心** (4F, footprint `學生活動中心` in campus.json); alternatives 共同教室 (easiest), 圖書資訊大樓 (hardest).
-Waiting on references from Kai: exterior photos, floor plans / 逃生避難圖 / interior photos, or a Minecraft build of CCU
-(if provided: parse `.mca`/`.schem` with amulet-core or anvil-parser, greedy-mesh, colour by block type, align to OSM).
-Plan: exterior facade → floor slabs, corridors, rooms, doors, stairs → furniture/hiding spots → restrict play area.
+## Step 2 done: 活動中心 as the play area — `web/sac.html`
+Scoped down to **one building**, built from Kai's photos in `student_activity_center/` (incl. `inside_image/2F_layout.jpeg`,
+the official floor map) + Kai's description. Standalone page (index.html links to it); same controls/character as index.html.
+- Layout follows Kai's `student_activity_center/drawn_layout.png` (plan view; x = east, z = south, lake 寧靜湖 to the south,
+  中正大道 景觀大橋 crossing the lake to the east at street level = 3F). Floors `L = [0,4,8,12,16]`, 4 m storeys.
+  - Main entrance = a block sticking out at the NE corner (3F, street level, face looking NE). Inside: 3F hall → straight stair
+    (12 m wide) down to a half-round 2F landing → fan flight down to the 1F plaza. The 3F floor's SW strip is the bridge in front
+    of the entrance (over the landing), from the 麗文 side door / 3F north gallery (NW) to the 健康中心 door (SE).
+    Code uses an entrance frame: `UV(u, v)`, u along the entrance face, v inward. 2F passage from the north gallery to the landing
+    (solid underneath: no 1F path on the cafeteria side of the stair).
+  - Red-arrow path: 1F walkway between the grand stair and the east block (z MPZ..EZ). 熱音社 + 打擊樂社 (1F of the east block,
+    under 健康中心) open onto it; it continues into the 1F hallway under the entrance hall/stairs, which leads to 小吃街.
+  - East block (1F–3F): 1F music clubs (+ a club opening west), 3F 健康中心 + 學生諮商中心.
+    Walkways outside the east block: 3F along its north + west faces (entrance bridge ↔ lake-side 3F walkway), 2F along its
+    west face (↔ lake-side 2F walkway); a 2F link deck (the fan's south-east slice, over the red-arrow
+    path) joins it to the grand stair's 2F landing.
+  - West block (1F–4F, x −76..−28, scaled from the drawing): 演藝廳 sticks out north (z −39.5..−15): back stage (outside door) |
+    stage | 22 raked rows from the 3F door down to 1F. Then a corridor along the theatre wall + a band of rooms, the open-air slot (2F west gallery high
+    end → ground outside the west face, nothing above it), another band of rooms + corridor, and the south row: club |
+    indoor stair 1F–4F (square, switchback) | club | restaurant (1F–2F, half-round glass bay facing the lake).
+    The slot is open to the sky: 1F path on its north part, slope (2F → outside) on its south part. 1F rooms there are offices; others clubs.
+  - Stairs built by `switchback()` (two straight flights per storey + turn landing): the "circle stair" 1F–4F at the west end of
+    the atrium (6.4 m wide, half-round turn, stone walls instead of railings) and the square indoor stair on the south face.
+    The square stair goes up to the roof: a small brick stair house (door north) opens onto a rooftop plaza over the
+    west block's south rooms (low 1.1 m wall around it, planters + benches). HUD shows `RF` there.
+  - One diagonal 3F bridge (green in the drawing) from the north gallery to
+    the south-west corner. South side has no rooms: open 2F/3F walkways facing the lake. 1F north = 小吃街.
+- Collision: every solid is a vertical prism (polygon + holes, y0..y1 or y0..top(x,z) for ramps); player = cylinder
+  (R 0.35, HEAD 1.8, STEP 0.5) with push-out, ground snapping, ceilings; helix colliders available (unused now); uniform grid.
+  Stairs are drawn as steps but walked as smooth ramps. Camera ray-marches the same colliders.
+- Rendering: all static geometry merged per material (~40k tris). WebGL by default; `?gpu` loads the three.webgpu build
+  (WebGPURenderer → Dawn in Chrome, WebGL2 fallback). Not heavy, so WebGL stays default.
+- Debug: `?test` walks 48 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
+  `?shot=x,y,z,yaw,pitch,dist[&nohud]` places player/camera for screenshots. Headless Chrome works with `file://`
+  + `--allow-file-access-from-files --use-angle=swiftshader --enable-unsafe-swiftshader`.
+- Approximations to revisit with Kai: room sizes (from the drawing's scale), 2F under the entrance hall (solid now), 演藝廳 interior,
+  4F extent (north + west only), real club names. No door leaves yet (openings only).
 
 ## Roadmap after that
+0. Polish 活動中心 from Kai's feedback (more photos of 1F offices / 4F / 演藝廳 would help); campus around it as scenery.
 1. Multiplayer: Node + Colyseus server, lobby with room codes, players see each other.
 2. Roles & phases: lobby → hide (30 s, seekers blind) → seek (3 min) → results; tag to catch.
 3. Hiding mechanics: line of sight, bushes/cars/furniture cover, crouch, footstep sounds, seeker ping.

@@ -1,0 +1,1566 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="活動中心">
+<title>活動中心 Activity Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;800&display=swap" rel="stylesheet">
+<style>
+/*
+VOICE: playful campus game, warm afternoon light
+IDEA: the student activity centre you can run around in, all four floors
+PICTURE: the 3D building itself, full screen
+COLOUR and TYPE: brick, green railings, sky; Noto Sans TC
+LAYOUT: full-bleed canvas, HUD in corners, floor plan top-right
+*/
+:root{color-scheme:light dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;overscroll-behavior:none;background:#a8d8f0;font:15px/1.4 "Noto Sans TC",system-ui,sans-serif;color:#1d2a1f}
+#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.hud{position:fixed;pointer-events:none;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+#title{top:calc(14px + env(safe-area-inset-top));left:calc(16px + env(safe-area-inset-left))}
+#title b{display:block;font-size:22px;font-weight:800;line-height:1.1}
+#title span{font-size:13px;opacity:.9}
+#where{top:14px;left:50%;transform:translateX(-50%);background:rgba(20,30,25,.6);padding:6px 14px;border-radius:999px;font-weight:800;text-shadow:none;white-space:nowrap;display:flex;gap:10px;align-items:center}
+#where i{font-style:normal;background:#ffd34d;color:#1d2a1f;border-radius:6px;padding:0 7px;font-size:14px}
+#mini{top:calc(14px + env(safe-area-inset-top));right:calc(14px + env(safe-area-inset-right));width:250px;height:156px;border-radius:10px;border:2px solid rgba(255,255,255,.85);background:#6aa84f;box-shadow:0 2px 10px rgba(0,0,0,.3)}
+#help{bottom:14px;left:calc(16px + env(safe-area-inset-left));background:rgba(20,30,25,.6);padding:10px 14px;border-radius:10px;text-shadow:none;font-size:13px;line-height:1.7}
+#help kbd{display:inline-block;min-width:22px;padding:0 6px;border-radius:5px;background:rgba(255,255,255,.22);text-align:center;font:inherit;font-weight:800}
+#stam{bottom:18px;left:50%;transform:translateX(-50%);width:200px;height:10px;border-radius:6px;background:rgba(0,0,0,.35);overflow:hidden}
+#stam i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ffd34d,#ff9a3c);transition:width .1s}
+#info{right:calc(14px + env(safe-area-inset-right));bottom:10px;font-size:11px;opacity:.85;text-align:right}
+#start{position:fixed;inset:0;display:grid;place-items:center;overflow:auto;background:rgba(18,40,30,.55);z-index:5;padding:16px}
+#start div{background:#fff;color:#1d2a1f;padding:28px 32px;border-radius:16px;max-width:400px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+#start h1{margin:0 0 6px;font-size:28px;line-height:1.1}
+#start p{margin:0 0 18px;color:#4a5a4d}
+#start button{font:800 16px "Noto Sans TC",sans-serif;padding:12px 26px;min-height:44px;border:0;border-radius:999px;background:#c8553d;color:#fff;cursor:pointer}
+#start button:focus-visible{outline:3px solid #ffd34d;outline-offset:3px}
+#start a{display:block;margin-top:14px;font-size:13px;color:#2a6e9f}
+#joy{position:fixed;width:110px;height:110px;border-radius:50%;border:2px solid rgba(255,255,255,.6);display:none;pointer-events:none}
+#joy i{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px;border-radius:50%;background:rgba(255,255,255,.7)}
+#jumpBtn{position:fixed;right:calc(22px + env(safe-area-inset-right));bottom:calc(28px + env(safe-area-inset-bottom));width:76px;height:76px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:rgba(0,0,0,.35);color:#fff;font:800 15px/1.1 "Noto Sans TC",sans-serif;display:none;touch-action:none;user-select:none;-webkit-user-select:none;z-index:3}
+#jumpBtn.on{background:rgba(255,255,255,.4)}
+#mhelp{left:50%;transform:translateX(-50%);bottom:112px;font-size:12px;display:none;text-align:center}
+#testout{position:fixed;left:10px;top:60px;z-index:9;background:#fff;color:#000;font:12px/1.4 monospace;padding:8px;max-width:90vw;white-space:pre-wrap;display:none}
+@media(max-width:600px),(max-height:500px){#mini{width:160px;height:100px}#help{display:none}#title b{font-size:18px}#title span{display:none}#where{top:auto;bottom:calc(40px + env(safe-area-inset-bottom));font-size:13px;padding:4px 12px}#info{display:none}}
+@media(max-height:500px){#mini{width:136px;height:85px}#start div{padding:18px 22px}#start h1{font-size:22px}#start p{margin-bottom:10px}}
+</style>
+<script>
+// Pick the three.js build before any module loads: ?gpu -> WebGPURenderer build (falls back to WebGL2 by itself).
+(() => {
+  const gpu = new URLSearchParams(location.search).has('gpu');
+  const base = 'https://cdn.jsdelivr.net/npm/three@0.170.0/';
+  document.write('<script type="importmap">' + JSON.stringify({imports:{
+    three: base + (gpu ? 'build/three.webgpu.js' : 'build/three.module.js'),
+    'three/addons/': base + 'examples/jsm/'}}) + '<\/script>');
+})();
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="hud" id="title"><b>中正大學 · 活動中心</b><span>Student Activity Center · step 2 (one building)</span></div>
+<div class="hud" id="where"><i id="flr">3F</i><span id="place">正門 Main Entrance</span></div>
+<canvas class="hud" id="mini" width="500" height="312"></canvas>
+<div class="hud" id="help"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump<br>Move mouse to look &nbsp; Scroll to zoom &nbsp; <span id="lock">Click to lock mouse</span></div>
+<div class="hud" id="stam"><i></i></div>
+<div class="hud" id="info"></div>
+<div id="joy"><i></i></div>
+<button id="jumpBtn" aria-label="Jump">跳<br>Jump</button>
+<div class="hud" id="mhelp">左半邊拖曳移動（推到底衝刺）· 右半邊拖曳看 <br>Drag left side to move (push far to sprint) · drag right side to look</div>
+<pre id="testout"></pre>
+<div id="start"><div><h1>中正大學 活動中心</h1><p>Explore all four floors of the Student Activity Center. The main entrance is on 3F. 正門在三樓，小吃街在一樓。</p><button id="go">開始 Start</button><a href="index.html">← Whole campus 全校園</a></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+const Q = new URLSearchParams(location.search);
+const canvas = document.getElementById('game');
+const MOBILE = matchMedia('(pointer:coarse)').matches || innerWidth < 700;
+
+// ---------- renderer: WebGL by default, WebGPU (Dawn in Chrome) with ?gpu ----------
+let renderer, backend = 'WebGL2';
+if (Q.has('gpu') && THREE.WebGPURenderer){
+  renderer = new THREE.WebGPURenderer({canvas, antialias:true});
+  await renderer.init();
+  backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGPU build → WebGL2 fallback';
+} else renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const SKY = 0xa8d8f0;
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 140, 420);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 900);
+
+scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a55, 1.0));
+scene.add(new THREE.AmbientLight(0xfff4e6, 0.55));            // keeps interiors readable under 4 storeys of slabs
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+sun.position.set(55, 95, 35); sun.target.position.set(0, 0, 0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(MOBILE ? 2048 : 4096, MOBILE ? 2048 : 4096);
+Object.assign(sun.shadow.camera, {left:-100, right:100, top:100, bottom:-100, near:10, far:320});
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+
+try { await Promise.race([document.fonts.load('800 40px "Noto Sans TC"', '活動中心小吃街麗文書局全家演藝廳健康中心社'), new Promise(r => setTimeout(r, 2500))]); } catch {}
+
+// ---------- building dimensions (metres; x = east, z = south) — follows Kai's drawn_layout.png ----------
+// Lake 寧靜湖 to the south, 中正大道 bridge to the east. Main entrance = chamfered north-east corner at 3F.
+const L = [0, 4, 8, 12, 16];      // floor levels: 1F, 2F, 3F, 4F, roof
+const H = 4;                       // storey height
+const SL = 0.4;                    // slab thickness
+const WT = 0.25;                   // wall thickness
+const BXW = -76, BXE = 56, BZ = 28;        // building outline (north face z = -BZ, south face z = +BZ; the theatre sticks out north to TN)
+// main entrance (3F, street level): a block sticking out at the north-east corner, entrance face P2→P3 looking north-east
+const P1 = [33, -BZ], P2 = [44, -38], P3 = [62.5, -20.5], P4 = [BXE, -13];
+const WX = -28;                    // west block (演藝廳 + rooms, 1F–4F) east face
+const WGX = -23.5;                 // west gallery inner edge
+const NZ = -16, NGZ = -12;         // north rooms front, north gallery inner edge
+const NX1 = 30;                    // north rooms end; east of it is the entrance hall
+const SGZ = 22;                    // south side: no rooms, open walkways on 2F/3F between SGZ and BZ
+const EX = 40, EZ = -2;            // east block (健康中心 3F; 熱音社 + 打擊樂社 1F): x > EX, z > EZ, 1F–3F
+const HW_X = 37;                   // 3F walkway outside 健康中心: x HW_X..EX (west face) and z EZ-3..EZ (north face)
+const MPZ = -5.5;                  // 1F path (red arrow) between the grand stair and the east block: z MPZ..EZ
+const SLOT = [-2.5, 7.5];          // west block slot, open to the sky: slope (2F west gallery → ground outside) + 1F path beside it
+const SLOPE_Z1 = 2;                // 1F path z SLOT[0]..SLOPE_Z1 (north), slope z SLOPE_Z1..SLOT[1] (south)
+const TN = -39.5, TZ1 = -15;       // 演藝廳: x BXW..WX, z TN..TZ1, full height (sticks out north of the main block)
+const BSX = -67, SX = -57;         // 演藝廳: back stage x BXW..BSX, stage BSX..SX, seats SX..WX
+const BS_DOOR = -33;               // back-stage door to the outside (west face, 1F)
+const C1Z = [TZ1, -12];            // west block corridor between the theatre and the rooms beside it
+const C2Z = [16, 19];              // west block corridor between the slope-side rooms and the south rooms
+const STW = [-66, -59];            // indoor stair (1F–4F) on the south face, x range (z C2Z[1]..BZ)
+const RS_X = -37, RS_R = 7;        // restaurant (1F–2F): half-round glass bay on the south face + the room behind it
+const SIDE_X = -19;                // 3F side entrance door (north face)
+// grand stair, in the entrance frame (u along the entrance face, v inward from it):
+// 3F hall v 0..SV0 → straight stair (u ±SW) down to 2F at v SV1 → half-round 2F landing (radius RL) → fan flight down to 1F (radius RF)
+// 3F floor reaches v FV (its south-west strip is the bridge in front of the entrance, over the landing)
+const SW = 6, SV0 = 8, SV1 = 16.5, RL = 6, RF = 12, FV = 21.5;
+const TOWER_C = [WGX + 1.4, 1], CSW = 3.2;    // circle stair (1F–4F, straight flights + half-round turn) at the west end of the atrium: flights start here, run east
+const TAU = Math.PI * 2;
+const CHL = Math.hypot(P3[0] - P2[0], P3[1] - P2[1]);
+const CU = [(P3[0] - P2[0]) / CHL, (P3[1] - P2[1]) / CHL], CN = [CU[1], -CU[0]], EN = [-CN[0], -CN[1]];   // along / outward / inward normal of the entrance face
+const CM = [(P2[0] + P3[0]) / 2, (P2[1] + P3[1]) / 2];
+
+let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+// ---------- textures (canvas, world-scale UVs: 1 unit = 1 m) ----------
+function tex(size, metres, draw){
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  draw(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  t.repeat.set(1/metres, 1/metres);
+  return t;
+}
+const T_PAVE = tex(256, 4, (g, s) => {            // irregular stone slabs (plaza, stairs)
+  g.fillStyle = '#6f6560'; g.fillRect(0, 0, s, s);
+  const cols = ['#9a8c84','#8a7d78','#a3958a','#7f7a80','#958579','#b0a093','#867c86','#a08c7a'];
+  for (let y = 0; y < s;){ const h = 12 + Math.floor(rand()*12);
+    for (let x = 0; x < s;){ const w = 18 + Math.floor(rand()*30); g.fillStyle = cols[Math.floor(rand()*cols.length)]; g.fillRect(x+1, y+1, Math.min(w, s-x)-2, Math.min(h, s-y)-2); x += w; }
+    y += h; }
+});
+const tiles = (base, grout, vary) => (g, s) => {
+  g.fillStyle = grout; g.fillRect(0, 0, s, s);
+  const n = 4, w = s/n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++){ g.fillStyle = vary[(i*7 + j*3) % vary.length] || base; g.fillRect(i*w+1, j*w+1, w-2, w-2); }
+};
+const T_RED   = tex(128, 2, tiles('#b5694f', '#8d4f3b', ['#b5694f','#ad6249','#bb7157','#b0664c']));
+const T_GREEN = tex(128, 2, tiles('#5f7f70', '#4a6358', ['#5f7f70','#5a7a6b','#668676','#5c7c6d']));
+const T_WHITE = tex(128, 2, tiles('#d9d6cf', '#bdb8ae', ['#d9d6cf','#d3d0c9','#dedbd4']));
+function brickDraw(win, base){
+  return (g, s) => {
+    const px = s / 4;                                  // pixels per metre (texture covers 4 m x 4 m)
+    g.fillStyle = base; g.fillRect(0, 0, s, s);
+    g.fillStyle = 'rgba(0,0,0,.10)';
+    for (let y = 0; y < s; y += 6) g.fillRect(0, y, s, 1);
+    for (let y = 0, r = 0; y < s; y += 6, r++) for (let x = (r % 2) * 8; x < s; x += 16) g.fillRect(x, y, 1, 6);
+    g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(0, 0, s, px*0.14);     // slab-edge band at each floor (canvas top = floor)
+    if (win){
+      const x0 = px*0.7, x1 = px*3.3, y0 = px*0.9, y1 = px*2.6;
+      g.fillStyle = '#dcd6cc'; g.fillRect(x0-4, y0-4, x1-x0+8, y1-y0+8);
+      g.fillStyle = '#42596a'; g.fillRect(x0, y0, x1-x0, y1-y0);
+      g.fillStyle = '#6d8799'; g.fillRect(x0+4, y0+4, (x1-x0)/2-6, (y1-y0)*0.45);
+      g.fillStyle = '#dcd6cc'; g.fillRect((x0+x1)/2-2, y0, 4, y1-y0); g.fillRect(x0, y0 + (y1-y0)*0.55, x1-x0, 3);
+    }
+  };
+}
+const T_BRICK = tex(256, 4, brickDraw(false, '#b67c63')), T_BRICKWIN = tex(256, 4, brickDraw(true, '#b67c63'));
+const T_WALLWIN = tex(256, 4, (g, s) => {           // cream gallery-side wall with a window band
+  const px = s/4; g.fillStyle = '#eee6d6'; g.fillRect(0, 0, s, s);
+  g.fillStyle = '#d8cdb8'; g.fillRect(0, px*0.9, s, 3);
+  const x0 = px*0.8, x1 = px*3.2, y0 = px*1.0, y1 = px*2.3;
+  g.fillStyle = '#7b8f86'; g.fillRect(x0-3, y0-3, x1-x0+6, y1-y0+6);
+  g.fillStyle = '#4f6470'; g.fillRect(x0, y0, x1-x0, y1-y0);
+  g.fillStyle = '#7b8f86'; g.fillRect((x0+x1)/2-2, y0, 4, y1-y0);
+});
+for (const t of [T_BRICK, T_BRICKWIN, T_WALLWIN]) t.offset.y = -0.25;   // side-wall v = 1 - height → canvas top is the floor
+const T_RAIL = (() => {                              // green balusters, 1 m period, transparent gaps
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#3b7a56'; g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5);
+  for (let x = 6; x < 64; x += 16) g.fillRect(x, 0, 3, 64);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+
+// ---------- materials ----------
+const mat = (c, o={}) => new THREE.MeshStandardMaterial({color:c, roughness:.85, ...o});
+const MAT = {
+  concrete: mat(0xcfcac1), slab: mat(0xd9d4ca), wall: mat(0xefe8da), wallB: mat(0xd9c8ad), wallWin: mat(0xffffff, {map:T_WALLWIN}),
+  brick: mat(0xffffff, {map:T_BRICK}), brickWin: mat(0xffffff, {map:T_BRICKWIN}),
+  pave: mat(0xffffff, {map:T_PAVE}), red: mat(0xffffff, {map:T_RED}), green: mat(0xffffff, {map:T_GREEN}), white: mat(0xffffff, {map:T_WHITE}),
+  roof: mat(0x6f6a64), road: mat(0x4a4d52), grass: mat(0x79b35b), water: mat(0x3d8fc6, {roughness:.15, metalness:.1}),
+  carpet: mat(0x7b2f37), stage: mat(0x8b5a35), wood: mat(0xb37a46), dark: mat(0x6b4a2e), seat: mat(0xa9353c), sofa: mat(0x5772a0),
+  metal: mat(0xa9b0b5, {metalness:.3, roughness:.5}), bed: mat(0xf4f4f2), curtain: mat(0xa9d3e0), box: mat(0xc49a63),
+  plant: mat(0x3f8a3c, {flatShading:true}), fridge: mat(0xdde6ea, {roughness:.25}), counter: mat(0xe9e4da), mirror: mat(0xcfe3ea, {roughness:.05, metalness:.6}),
+  curtainR: mat(0x8c1f2a), screen: mat(0x26292d), lib: mat(0x3ea04a), fmB: mat(0x2b6cb0), fmG: mat(0x2f9e5a),
+  rail: mat(0x3b7a56, {roughness:.5, metalness:.3}),
+  railP: mat(0xffffff, {map:T_RAIL, alphaTest:.5, side:THREE.DoubleSide, roughness:.5}),
+  steel: mat(0x939ca3, {roughness:.45, metalness:.5}),
+  glass: new THREE.MeshStandardMaterial({color:0xcfeaf5, transparent:true, opacity:.25, roughness:.05, metalness:.2, depthWrite:false, side:THREE.DoubleSide}),
+  roofGlass: new THREE.MeshStandardMaterial({color:0xd8eef5, transparent:true, opacity:.18, roughness:.05, metalness:.2, depthWrite:false, side:THREE.DoubleSide}),
+  lamp: new THREE.MeshBasicMaterial({color:0xfffbea}),
+};
+const NOCAST = new Set(['glass', 'roofGlass', 'railP', 'lamp', 'water', 'grass', 'road']);
+
+// ---------- geometry buckets: everything static is merged per material at the end ----------
+const buckets = new Map();
+function put(g, key, cast = true){
+  if (g.index) g = g.toNonIndexed();
+  const k = key + (cast ? '' : '|n');
+  let b = buckets.get(k); if (!b) buckets.set(k, b = []);
+  b.push(g);
+}
+function flush(){
+  let tris = 0;
+  for (const [k, list] of buckets){
+    const [key, n] = k.split('|');
+    const g = mergeGeometries(list, false);
+    if (!g){ console.warn('merge failed for', key); continue; }
+    tris += g.attributes.position.count / 3;
+    const m = new THREE.Mesh(g, MAT[key]);
+    m.castShadow = !n && !NOCAST.has(key); m.receiveShadow = key !== 'lamp';
+    if (key === 'glass' || key === 'roofGlass') m.renderOrder = 2;
+    scene.add(m);
+  }
+  buckets.clear();
+  return tris;
+}
+const v2 = ([x, z]) => new THREE.Vector2(x, -z);
+function prismGeo(pts, y0, y1, holes){
+  const s = new THREE.Shape(pts.map(v2));
+  if (holes) for (const h of holes) s.holes.push(new THREE.Path(h.map(v2)));
+  const g = new THREE.ExtrudeGeometry(s, {depth: y1 - y0, bevelEnabled:false});
+  g.rotateX(-Math.PI/2); g.translate(0, y0, 0); return g;
+}
+function flatGeo(pts, y, holes){
+  const s = new THREE.Shape(pts.map(v2));
+  if (holes) for (const h of holes) s.holes.push(new THREE.Path(h.map(v2)));
+  const g = new THREE.ShapeGeometry(s); g.rotateX(-Math.PI/2); g.translate(0, y, 0); return g;
+}
+function quadGeo(a, b, c, d, uLen = 1){          // 4 corners [x,y,z] (a-b bottom, c-d top); u in metres along a→b
+  const pos = [...a, ...b, ...c, ...a, ...c, ...d];
+  const uv = [0,0, uLen,0, uLen,1, 0,0, uLen,1, 0,1];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals(); return g;
+}
+const _q = new THREE.Quaternion(), _m4 = new THREE.Matrix4(), XAXIS = new THREE.Vector3(1, 0, 0), ONE = new THREE.Vector3(1, 1, 1);
+function bar(a, b, w, key, h = w){               // box beam between two 3D points
+  const d = new THREE.Vector3(b[0]-a[0], b[1]-a[1], b[2]-a[2]), len = d.length();
+  const g = new THREE.BoxGeometry(len, h, w);
+  _q.setFromUnitVectors(XAXIS, d.normalize());
+  g.applyMatrix4(_m4.compose(new THREE.Vector3((a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2), _q, ONE));
+  put(g, key);
+}
+function cylGeo(x, z, y0, y1, r, seg = 16){ const g = new THREE.CylinderGeometry(r, r, y1 - y0, seg); g.translate(x, (y0 + y1)/2, z); return g; }
+const rect = (x0, z0, x1, z1) => [[Math.min(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.max(z0,z1)], [Math.min(x0,x1), Math.max(z0,z1)]];
+const circlePts = (cx, cz, r, n = 24) => Array.from({length:n}, (_, i) => [cx + r*Math.cos(i/n*TAU), cz + r*Math.sin(i/n*TAU)]);
+function sectorPts(cx, cz, r0, r1, a0, a1, n = 3){   // annular sector polygon
+  const p = [];
+  for (let i = 0; i <= n; i++){ const a = a0 + (a1 - a0)*i/n; p.push([cx + r1*Math.cos(a), cz + r1*Math.sin(a)]); }
+  for (let i = n; i >= 0; i--){ const a = a0 + (a1 - a0)*i/n; p.push([cx + r0*Math.cos(a), cz + r0*Math.sin(a)]); }
+  return p;
+}
+
+// ---------- colliders ----------
+// Every solid is a vertical prism: polygon footprint (+ optional holes) between y0 and y1,
+// or y0 .. top(x,z) for ramps/stairs. The player is a cylinder (radius R, height HEAD) that can step up STEP.
+const R = 0.35, HEAD = 1.8, STEP = 0.5, SNAP = 0.6;
+const cols = [];
+const polyBox = pts => { let x0=1e9, z0=1e9, x1=-1e9, z1=-1e9; for (const [x,z] of pts){ if (x<x0)x0=x; if (x>x1)x1=x; if (z<z0)z0=z; if (z>z1)z1=z; } return {x0, z0, x1, z1}; };
+function insidePoly(x, z, pts){
+  let inside = false;
+  for (let i = 0, j = pts.length-1; i < pts.length; j = i++){
+    const [xi,zi] = pts[i], [xj,zj] = pts[j];
+    if ((zi > z) !== (zj > z) && x < (xj-xi)*(z-zi)/(zj-zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function closestOnRing(x, z, pts, best){
+  for (let i = 0, j = pts.length-1; i < pts.length; j = i++){
+    const [ax,az] = pts[j], [bx,bz] = pts[i], dx = bx-ax, dz = bz-az, l = dx*dx + dz*dz || 1;
+    const t = Math.max(0, Math.min(1, ((x-ax)*dx + (z-az)*dz) / l)), px = ax + t*dx, pz = az + t*dz, d = (x-px)**2 + (z-pz)**2;
+    if (d < best[2]){ best[0] = px; best[1] = pz; best[2] = d; }
+  }
+  return best;
+}
+// broad phase: uniform grid, colliders padded by 1 m so one cell lookup covers the player radius
+const GX0 = -140, GZ0 = -90, GS = 4, GW = 72, GH = 53;
+const grid = Array.from({length: GW*GH}, () => []);
+const cellX = x => Math.max(0, Math.min(GW-1, Math.floor((x - GX0)/GS))), cellZ = z => Math.max(0, Math.min(GH-1, Math.floor((z - GZ0)/GS)));
+function gridAdd(c){ const b = c.box; for (let i = cellX(b.x0-1); i <= cellX(b.x1+1); i++) for (let j = cellZ(b.z0-1); j <= cellZ(b.z1+1); j++) grid[j*GW+i].push(c); }
+const near = (x, z) => grid[cellZ(z)*GW + cellX(x)];
+
+function col(p, y0, y1, o = {}){
+  const c = {p, y0, y1, holes:o.holes || null, top:o.top || null, cam:o.cam !== false, box:polyBox(p)};
+  cols.push(c); gridAdd(c); return c;
+}
+function inside(c, x, z){
+  const b = c.box; if (x < b.x0 || x > b.x1 || z < b.z0 || z > b.z1) return false;
+  if (!insidePoly(x, z, c.p)) return false;
+  if (c.holes) for (const h of c.holes) if (insidePoly(x, z, h)) return false;
+  return true;
+}
+function closestOn(c, x, z){ const best = [0, 0, Infinity]; closestOnRing(x, z, c.p, best); if (c.holes) for (const h of c.holes) closestOnRing(x, z, h, best); best[2] = Math.sqrt(best[2]); return best; }
+
+// building blocks: geometry + collider together
+function solid(p, y0, y1, key, o = {}){
+  if (key) put(prismGeo(p, y0, y1, o.holes), key, o.cast !== false);
+  if (!o.noCol) col(p, y0, y1, o);
+}
+const boxS = (x0, z0, x1, z1, y0, y1, key, o) => solid(rect(x0, z0, x1, z1), y0, y1, key, o);
+function wseg(ax, az, bx, bz, y0, y1, key, t = WT, o = {}){        // straight wall segment of thickness t
+  const l = Math.hypot(bx-ax, bz-az); if (l < 0.01 || y1 - y0 < 0.01) return;
+  const e = o.ext ?? t/2, ux = (bx-ax)/l, uz = (bz-az)/l, nx = -uz*t/2, nz = ux*t/2;
+  const a = [ax - ux*e, az - uz*e], b = [bx + ux*e, bz + uz*e];
+  solid([[a[0]+nx, a[1]+nz], [b[0]+nx, b[1]+nz], [b[0]-nx, b[1]-nz], [a[0]-nx, a[1]-nz]], y0, y1, key, o);
+}
+// wall from a to b with door openings: doors = [[centre along wall (m), width, height]]
+function wallLine(ax, az, bx, bz, y0, y1, key, doors = [], o = {}){
+  const l = Math.hypot(bx-ax, bz-az), ux = (bx-ax)/l, uz = (bz-az)/l, t = o.t || WT;
+  const P = s => [ax + ux*s, az + uz*s];
+  const ds = doors.map(([c, w = 1.6, h = 2.4]) => [Math.max(0, c - w/2), Math.min(l, c + w/2), h]).sort((a, b) => a[0] - b[0]);
+  let s = 0;
+  for (const [d0, d1, h] of ds){
+    if (d0 > s + 0.01) wseg(...P(s), ...P(d0), y0, y1, key, t, o);
+    if (y0 + h < y1 - 0.01) wseg(...P(d0), ...P(d1), y0 + h, y1, o.lintel || key, t, {...o, ext:0});
+    s = Math.max(s, d1);
+  }
+  if (l > s + 0.01) wseg(...P(s), bx, bz, y0, y1, key, t, o);
+}
+// railing: green baluster panel + top rail; collider is taller (1.6 m) so nobody hops over into the atrium
+function railing(ax, az, bx, bz, y, gaps = []){
+  const l = Math.hypot(bx-ax, bz-az), ux = (bx-ax)/l, uz = (bz-az)/l;
+  const P = s => [ax + ux*s, az + uz*s];
+  const pieces = []; let s = 0;
+  for (const [g0, g1] of gaps.map(g => g.slice().sort((a, b) => a - b)).sort((a, b) => a[0] - b[0])){ if (g0 > s) pieces.push([s, g0]); s = Math.max(s, g1); }
+  if (s < l) pieces.push([s, l]);
+  for (const [s0, s1] of pieces){
+    if (s1 - s0 < 0.05) continue;
+    const [x0, z0] = P(s0), [x1, z1] = P(s1);
+    put(quadGeo([x0, y+0.05, z0], [x1, y+0.05, z1], [x1, y+1.05, z1], [x0, y+1.05, z0], s1 - s0), 'railP', false);
+    bar([x0, y+1.08, z0], [x1, y+1.08, z1], 0.07, 'rail');
+    wseg(x0, z0, x1, z1, y, y + 1.6, null, 0.14, {cam:false, ext:0});
+  }
+}
+// railing gaps are given in world coordinates along the dominant axis; convert to distances from a
+const railX = (x0, x1, z, y, gaps = []) => railing(x0, z, x1, z, y, gaps.map(([a, b]) => [a - x0, b - x0]));
+const railZ = (x, z0, z1, y, gaps = []) => railing(x, z0, x, z1, y, gaps.map(([a, b]) => [a - z0, b - z0]));
+function pillar(x, z, y0, y1, r = 0.45){ put(cylGeo(x, z, y0, y1, r), 'concrete'); col(circlePts(x, z, r, 8), y0, y1); }
+function lamp(x, z, y, w = 1.2, d = 0.3){ put(prismGeo(rect(x - w/2, z - d/2, x + w/2, z + d/2), y - 0.04, y), 'lamp', false); }
+function floorF(pts, y, key, holes){ put(flatGeo(pts, y, holes), key, false); }
+
+// ramps: footprint polygon whose walkable top is a function (stairs are drawn as steps but walked as a smooth ramp)
+function ramp(p, y0, top, o = {}){ return col(p, y0, 0, {...o, top}); }
+
+// ---------- spiral stairs (helix ramps) ----------
+// exit = angle (atan2(dz,dx)) where each floor is reached; heights rise by `pitch` per turn
+const EXIT_U = 0.06, DECK = 0.3, SOLID_U = 0.7;
+const helices = [];
+function helix(o){
+  const c = {helix:true, r0:0.5, r1:3.0, pitch:H, parapet:false, wall:false, wallTop:0, solidBase:true, ...o};
+  c.turns = (c.y1 - c.y0) / c.pitch;
+  c.colTop = c.wall ? c.wallTop : c.y1 + 1.2;
+  const pad = c.r1 + 0.4;
+  c.box = {x0:c.cx - pad, x1:c.cx + pad, z0:c.cz - pad, z1:c.cz + pad};
+  helices.push(c); cols.push(c); gridAdd(c);
+  // visuals: 24 steps per turn
+  const N = Math.round(c.turns * 24);
+  for (let i = 0; i < N; i++){
+    const a0 = c.exit + i/24*TAU, a1 = c.exit + (i+1)/24*TAU, h = c.y0 + (i + 0.5)/24*c.pitch;
+    put(prismGeo(sectorPts(c.cx, c.cz, c.r0, c.r1, a0, a1), (i < 24*SOLID_U && c.solidBase) ? c.y0 : h - DECK, h), 'pave');
+    const u = (i + 0.5)/24 % 1;
+    if (c.parapet && !(u < EXIT_U || u > 1 - EXIT_U)) put(prismGeo(sectorPts(c.cx, c.cz, c.r1 - 0.2, c.r1, a0, a1), h, h + 1.0), 'concrete');
+  }
+  put(cylGeo(c.cx, c.cz, c.y0, c.colTop, c.r0), 'concrete');
+  if (c.wall){
+    const gap = EXIT_U * TAU;
+    for (let k = 0; k <= c.turns; k++){
+      const F = c.y0 + k*c.pitch, top = k === c.turns ? c.wallTop : F + c.pitch - SL;
+      put(prismGeo(sectorPts(c.cx, c.cz, c.r1, c.r1 + 0.3, c.exit + gap, c.exit + TAU - gap, 20), F, top), 'wall');
+      put(prismGeo(sectorPts(c.cx, c.cz, c.r1, c.r1 + 0.3, c.exit - gap, c.exit + gap, 3), F + 2.4, top), 'wall');
+      if (k < c.turns) put(prismGeo(sectorPts(c.cx, c.cz, c.r1, c.r1 + 0.3, c.exit + gap, c.exit + TAU - gap, 20), top, F + c.pitch), 'concrete');
+    }
+  }
+  return c;
+}
+function hx(c, x, z){ const dx = x - c.cx, dz = z - c.cz; let a = Math.atan2(dz, dx) - c.exit; a = ((a % TAU) + TAU) % TAU; return [Math.hypot(dx, dz), a / TAU]; }
+const nearExit = u => u < EXIT_U || u > 1 - EXIT_U;
+function hxSolid(c, x, z, lo, hi){                 // does helix c occupy any height in [lo, hi] at (x, z)?
+  const [r, u] = hx(c, x, z);
+  if (r > c.r1 + (c.wall ? 0.3 : 0)) return false;
+  if (r < c.r0) return hi >= c.y0 && lo <= c.colTop;
+  if (r > c.r1){                                  // shaft wall, with a door at every floor
+    if (hi < c.y0 || lo > c.wallTop) return false;
+    if (nearExit(u)) for (let k = 0; k <= c.turns + 1e-6; k++){ const F = c.y0 + k*c.pitch; if (lo >= F - 0.6 && hi <= F + 2.4) return false; }
+    return true;
+  }
+  const par = c.parapet && r > c.r1 - 0.25 && !nearExit(u);
+  for (let k = 0; k < c.turns; k++){
+    // the low part of the first turn is solid to the floor; under its high end there is headroom (entry/exit)
+    const h = c.y0 + (u + k)*c.pitch, bot = (k === 0 && c.solidBase && u < SOLID_U) ? c.y0 : h - DECK, top = par ? h + 1.0 : h;
+    if (hi >= bot && lo <= top) return true;
+  }
+  return false;
+}
+function hxGround(c, x, z, maxY){
+  const [r, u] = hx(c, x, z);
+  if (r < c.r0 || r > c.r1 + 0.35) return -Infinity;
+  let best = -Infinity;
+  for (let k = 0; k < c.turns; k++){ const h = c.y0 + (u + k)*c.pitch; if (h <= maxY && h > best) best = h; }
+  if (u < EXIT_U && c.y1 <= maxY && c.y1 > best) best = c.y1;   // small landing at the top exit
+  return best;
+}
+function hxBlocked(c, x, z, feet){
+  for (const [ox, oz] of [[0,0],[R,0],[-R,0],[0,R],[0,-R]]) if (hxSolid(c, x + ox, z + oz, feet + STEP, feet + HEAD)) return true;
+  return false;
+}
+
+// ---------- lake 寧靜湖 (south of the building, water blocks movement at ground level) ----------
+const LAKE = {x:26, z:66, rx:113, rz:19};
+const inLake = (x, z, pad = 0) => ((x - LAKE.x)/(LAKE.rx + pad))**2 + ((z - LAKE.z)/(LAKE.rz + pad))**2 < 1;
+
+// ---------- queries used by movement and camera ----------
+function groundAt(x, z, feet){
+  let g = 0;
+  for (const c of near(x, z)){
+    if (c.helix){ const h = hxGround(c, x, z, feet + STEP); if (h > g) g = h; continue; }
+    if (!inside(c, x, z)) continue;
+    const t = c.top ? c.top(x, z) : c.y1;
+    if (t <= feet + STEP && t > g) g = t;
+  }
+  return g;
+}
+function ceilingAt(x, z, feet){
+  let cl = Infinity;
+  for (const c of near(x, z)){
+    if (c.helix || c.top) continue;
+    if (c.y0 >= feet + HEAD - 0.1 && c.y0 < cl && inside(c, x, z)) cl = c.y0;
+  }
+  return cl;
+}
+function pushOut(p, feet){
+  for (let pass = 0; pass < 3; pass++){
+    let moved = false;
+    for (const c of near(p.x, p.z)){
+      if (c.helix) continue;
+      const b = c.box; if (p.x < b.x0-R || p.x > b.x1+R || p.z < b.z0-R || p.z > b.z1+R) continue;
+      if (c.y0 >= feet + HEAD) continue;
+      if (!c.top && c.y1 <= feet + STEP) continue;
+      const ins = inside(c, p.x, p.z), [cx, cz, d] = closestOn(c, p.x, p.z);
+      if (!ins && d >= R) continue;
+      const hi = c.top ? c.top(ins ? p.x : cx, ins ? p.z : cz) : c.y1;
+      if (hi <= feet + STEP) continue;
+      let nx = ins ? cx - p.x : p.x - cx, nz = ins ? cz - p.z : p.z - cz; const l = Math.hypot(nx, nz) || 1;
+      p.x = cx + nx/l*R*1.001; p.z = cz + nz/l*R*1.001; moved = true;
+    }
+    if (!moved) break;
+  }
+}
+function specialBlocked(x, z, feet){
+  if (feet < 1 && inLake(x, z, R)) return true;
+  for (const c of helices) if (Math.abs(x - c.cx) < c.r1 + 1 && Math.abs(z - c.cz) < c.r1 + 1 && hxBlocked(c, x, z, feet)) return true;
+  return false;
+}
+function solidAt(x, y, z){                         // camera occlusion
+  for (const c of near(x, z)){
+    if (c.helix){ if (hxSolid(c, x, z, y, y)) return true; continue; }
+    if (!c.cam || y < c.y0) continue;
+    if (!inside(c, x, z)) continue;
+    if (y <= (c.top ? c.top(x, z) : c.y1)) return true;
+  }
+  return false;
+}
+
+// ---------- signs (unlit canvas planes) ----------
+function sign(main, sub, x, y, z, rotY, w, h, bg = '#264d3a', fg = '#fff'){
+  const W = 512, Hh = Math.max(64, Math.round(W * h / w));
+  const c = document.createElement('canvas'); c.width = W; c.height = Hh;
+  const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, W, Hh);
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const fit = (t, size, yy, weight) => { let s = Math.floor(size); do { g.font = `${weight} ${s}px "Noto Sans TC", "PingFang TC", sans-serif`; s -= 2; } while (g.measureText(t).width > W*0.9 && s > 10); g.fillText(t, W/2, yy); };
+  if (sub){ fit(main, Hh*0.5, Hh*0.38, 800); fit(sub, Hh*0.24, Hh*0.78, 500); } else fit(main, Hh*0.62, Hh*0.54, 800);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({map:t}));
+  m.position.set(x, y, z); m.rotation.y = rotY; scene.add(m); return m;
+}
+const split = n => { const i = n.indexOf(' '); return i < 0 ? [n, ''] : [n.slice(0, i), n.slice(i + 1)]; };
+
+// ---------- zones (HUD names) + per-floor plan for the minimap ----------
+const zones = [];
+const mapLayers = [[], [], [], []];
+const MAPC = {food2:'#f5d76e', band:'#9fc3e0', walk:'#e9e3d7', pave:'#cfc4b6', club:'#9fc3e0', office:'#c9b8e6', book:'#7cc47f', mart:'#6fc0a8', health:'#f2a0a0', counsel:'#f6c58f',
+              food:'#f5d76e', theatre:'#d98a94', stair:'#f0a830', big:'#b5e0d0', passage:'#e9e3d7', lobby:'#efd9b5', bridge:'#e9e3d7', road:'#55595e'};
+function mapAdd(f, pts, k, holes){ if (f >= 0 && f < 4) mapLayers[f].push({pts, k, holes}); }
+function zone(n, f, x0, z0, x1, z1, k, lo, hi){
+  zones.push({n, lo: lo ?? L[f] - 0.6, hi: hi ?? L[f] + 3.4, x0: Math.min(x0,x1), z0: Math.min(z0,z1), x1: Math.max(x0,x1), z1: Math.max(z0,z1)});
+  if (k) mapAdd(f, rect(x0, z0, x1, z1), k);
+}
+
+// =====================================================================================
+//  BUILD
+// =====================================================================================
+
+// ---------- layout helpers ----------
+function clipZ(poly, zmax){                        // keep the part of a polygon with z <= zmax
+  const out = [];
+  for (let i = 0; i < poly.length; i++){
+    const a = poly[i], b = poly[(i + 1) % poly.length], ia = a[1] <= zmax, ib = b[1] <= zmax;
+    if (ia) out.push(a);
+    if (ia !== ib){ const t = (zmax - a[1]) / (b[1] - a[1]); out.push([a[0] + (b[0] - a[0])*t, zmax]); }
+  }
+  return out;
+}
+function clipLin(poly, f){                         // keep the part of a polygon where f(x, z) <= 0 (f linear)
+  const out = [];
+  for (let i = 0; i < poly.length; i++){
+    const a = poly[i], b = poly[(i + 1) % poly.length], fa = f(...a), fb = f(...b);
+    if (fa <= 0) out.push(a);
+    if ((fa <= 0) !== (fb <= 0)){ const t = fa / (fa - fb); out.push([a[0] + (b[0] - a[0])*t, a[1] + (b[1] - a[1])*t]); }
+  }
+  return out;
+}
+// entrance frame: u along the entrance face (north-west → south-east), v inward (towards the plaza)
+const UV = (u, v) => [CM[0] + u*CU[0] + v*EN[0], CM[1] + u*CU[1] + v*EN[1]];
+const uOf = (x, z) => (x - CM[0])*CU[0] + (z - CM[1])*CU[1];
+const vOf = (x, z) => (x - CM[0])*EN[0] + (z - CM[1])*EN[1];
+const uvRect = (u0, u1, v0, v1) => [UV(u0, v0), UV(u1, v0), UV(u1, v1), UV(u0, v1)];
+const FC = UV(0, SV1), A_IN = Math.atan2(EN[1], EN[0]);                 // fan centre (foot of the straight stair), inward angle
+const FA0 = A_IN - Math.PI/2, FAD = 1.19, FA1 = 2.53, FA2 = A_IN + Math.PI/2;   // landing FA0..FA2; FA0..FAD: 2F deck to the east-block walkway; fan flight FAD..FA1; FA1..FA2: 2F passage
+const fanAt = (r, a) => [FC[0] + r*Math.cos(a), FC[1] + r*Math.sin(a)];
+const fanR = (x, z) => Math.hypot(x - FC[0], z - FC[1]);
+const fanA = (x, z) => { let a = Math.atan2(z - FC[1], x - FC[0]); if (a < FA0 - 0.5) a += TAU; return a; };
+const fanClip = p => clipLin(clipLin(p, x => NX1 + 0.3 - x), (x, z) => z - MPZ);
+const fanSector = (r0, r1, n = 20) => fanClip(sectorPts(FC[0], FC[1], r0, r1, FAD, FA1, n));
+const fanTop = r => r <= RL ? L[1] : r >= RF ? 0 : L[1]*(RF - r)/(RF - RL);
+const stairTop = v => L[2] - H*Math.max(0, Math.min(1, (v - SV0)/(SV1 - SV0)));
+const LANDING = Array.from({length:17}, (_, i) => fanAt(RL, FA0 + (FA2 - FA0)*i/16));                  // half-round 2F landing
+const OUT_NE = [[NX1, -BZ], P1, P2, P3, P4, [BXE, EZ], [NX1, EZ]];                                      // building outline east of the north rooms
+const F3 = clipLin(OUT_NE, (x, z) => vOf(x, z) - FV);                                                   // 3F hall + bridge strip
+const NWALK = rect(NX1, -22, 33.5, NGZ);                                                                // 3F walk: hall → 麗文 door → north gallery
+const STAIRH = uvRect(-SW, SW, SV0, SV1), VNW = uvRect(-9.5, -6.5, 16.8, 18), VSE = uvRect(6.5, 13, 16.8, 18.3);   // holes in the 3F floor
+const UNDER2 = [clipLin(clipLin(OUT_NE, (x, z) => vOf(x, z) - SV1), (x, z) => uOf(x, z) + SW),          // 2F mass beside / in front of the stair
+                clipLin(clipLin(OUT_NE, (x, z) => vOf(x, z) - SV1), (x, z) => SW - uOf(x, z)),
+                clipLin(clipLin(clipLin(OUT_NE, (x, z) => vOf(x, z) - SV0), (x, z) => uOf(x, z) - SW), (x, z) => -SW - uOf(x, z))];
+const PX = NX1 + 2;                                                                                    // 1F strip x NX1..PX: hallway → 小吃街 door
+const PASS2 = [clipLin(clipLin(sectorPts(FC[0], FC[1], RL - 0.2, RF, FA1, FA2, 16), x => PX - x), (x, z) => z - NGZ), rect(NX1, NZ, 34, NGZ)];   // 2F passage (solid underneath)
+const PLAT = [[P1[0], -78], [125, -78], [125, 40], [BXE, 40], P4, P3, P2, P1];                          // street level (3F) around the entrance
+const ENT = [CM[0] + CN[0]*4, CM[1] + CN[1]*4];
+
+// ---------- ground, plateau (street level = 3F), outdoor paving, lake ----------
+floorF(rect(-400, -400, 400, 400), 0, 'grass');
+floorF(rect(-86, -50, 56, 46), 0.01, 'pave');
+solid(PLAT, -0.2, L[2], 'concrete');
+floorF(PLAT, L[2] + 0.01, 'pave');
+{ const g = new THREE.CircleGeometry(1, 64); g.rotateX(-Math.PI/2); g.scale(LAKE.rx, 1, LAKE.rz); g.translate(LAKE.x, 0.05, LAKE.z); put(g, 'water', false);
+  const rim = new THREE.RingGeometry(1, 1.02, 64); rim.rotateX(-Math.PI/2); rim.scale(LAKE.rx, 1, LAKE.rz); rim.translate(LAKE.x, 0.06, LAKE.z); put(rim, 'concrete', false); }
+for (const f of [0, 1, 2, 3]){ mapAdd(f, rect(-86, -50, 56, 46), 'pave'); mapAdd(f, PLAT, 'pave'); }
+
+// ---------- 中正大學景觀大橋 (中正大道): the avenue crosses the lake at street level ----------
+const ROAD = [83, 120];
+{
+  const [RX0, RX1] = ROAD, Z1 = 110, y = L[2], xm = (RX0 + RX1)/2;
+  solid(rect(RX0, 40, RX1, Z1), y - 0.8, y, 'concrete');
+  floorF(rect(RX0, 40, RX1, Z1), y + 0.01, 'pave');
+  floorF(rect(RX0 + 3, -78, RX1 - 3, Z1), y + 0.02, 'road', );
+  for (let z = -76; z < Z1; z += 6) floorF(rect(xm - 0.12, z, xm + 0.12, z + 3), y + 0.03, 'lamp');
+  for (const x of [RX0 + 0.3, RX1 - 0.3]) railZ(x, 40, Z1, y);
+  for (const z of [52, 68, 84, 100]) for (const x of [RX0 + 4, RX1 - 4]) pillar(x, z, -1, y - 0.8, 0.9);
+  for (const x of [xm - 4.4, xm + 4.4]) pillar(x, 40.4, y, y + 4.2, 0.15);
+  sign('中正大學景觀大橋', '中正大道 Main Avenue', xm, y + 4.2, 40.2, Math.PI, 9, 1.4, '#4a4a46');
+  for (const f of [0, 1, 2, 3]) mapAdd(f, rect(RX0, -78, RX1, Z1), 'road');
+}
+
+// ---------- floor slabs ----------
+const holeLib = rect(13, -27.7, 22.2, -24.9);               // 麗文 inner stair 2F ↔ 3F
+function slab(pts, y, holes, f, k = 'walk'){ solid(pts, y - SL, y, 'slab', {holes}); mapAdd(f, pts, k, holes); }
+for (const f of [1, 2, 3]){
+  const y = L[f];
+  slab(rect(WX, -BZ, NX1, NGZ), y, f === 2 ? [holeLib] : null, f);   // north rooms + gallery
+  slab(rect(WX, NGZ, WGX, BZ), y, null, f);                          // west gallery
+  slab(rect(BXW, TZ1, WX, SLOT[0]), y, null, f);
+  slab(rect(BXW, SLOT[1], WX, C2Z[1]), y, null, f);                  // (nothing above the slope: open to the sky)
+  slab(rect(BXW, C2Z[1], STW[0], BZ), y, null, f); slab(rect(STW[1], C2Z[1], WX, BZ), y, null, f);   // stairwell left open
+  if (f <= 2){ slab(rect(WGX, SGZ, EX, BZ), y, null, f); slab(rect(EX, EZ, BXE, BZ), y, null, f); }   // south walkways, east block
+}
+// roofs: 4-storey parts at L[4], south walkway + east block at L[3]
+for (const pts of [rect(WX, -BZ, NX1, NGZ), rect(BXW, TN, WX, SLOT[0]), rect(BXW, SLOT[1], WX, C2Z[1]), rect(BXW, C2Z[1], STW[0], BZ), rect(STW[1], C2Z[1], WX, BZ), rect(WX, NGZ, WGX, BZ), OUT_NE]){ solid(pts, L[4] - SL, L[4], 'slab'); floorF(pts, L[4] + 0.01, 'roof'); }
+for (const pts of [rect(WGX, SGZ, EX, BZ), rect(EX, EZ, BXE, BZ)]){ solid(pts, L[3] - SL, L[3], 'slab'); floorF(pts, L[3] + 0.01, 'roof'); }
+// gallery / walkway floor finishes
+floorF(rect(WX, NZ, EX, BZ), 0.015, 'pave');
+floorF(rect(BXW, C1Z[0], WX, C1Z[1]), 0.015, 'red'); floorF(rect(BXW, C2Z[0], WX, C2Z[1]), 0.015, 'red');
+mapAdd(0, rect(WX, NZ, EX, BZ), 'pave');
+for (const f of [1, 2, 3]){
+  const y = L[f] + 0.012, k = f === 3 ? 'white' : 'red';
+  floorF(rect(WX, NZ, NX1, NGZ), y, k); floorF(rect(WX, NGZ, WGX, BZ), y, k); floorF(rect(BXW, C1Z[0], WX, C1Z[1]), y, k); floorF(rect(BXW, C2Z[0], WX, C2Z[1]), y, k);
+  if (f < 3) floorF(rect(WGX, SGZ, EX, BZ), y, k);
+}
+
+// ---------- main entrance (3F) → straight stair → half-round 2F landing → fan down to the 1F plaza; 1F hallway underneath ----------
+function railPoly(pts, y, skip = []){ for (let i = 0; i < pts.length; i++) if (!skip.includes(i)) railing(...pts[i], ...pts[(i + 1) % pts.length], y); }
+{
+  // 3F floor (hall + bridge strip in front of the entrance) with the stair opening and two small voids beside the bridge
+  solid(F3, L[2] - SL, L[2], 'slab', {holes:[STAIRH, VNW, VSE]}); floorF(F3, L[2] + 0.012, 'pave', [STAIRH, VNW, VSE]);
+  solid(NWALK, L[2] - SL, L[2], 'slab'); floorF(NWALK, L[2] + 0.014, 'pave');
+  mapAdd(2, F3, 'lobby', [STAIRH, VNW, VSE]); mapAdd(2, NWALK, 'lobby');
+  for (const p of UNDER2){ solid(p, L[1] - SL, L[2] - SL, 'wall'); }
+  zone('正門大廳 Main Entrance Hall', 2, NX1, P2[1], P3[0], EZ);
+  zone('一樓通道 Hallway (to 小吃街)', 0, NX1, P2[1], BXE, MPZ);
+  zone('一樓步道 Path (music clubs)', 0, EX - 6, MPZ, BXE, EZ);
+  floorF(rect(EX - 4, MPZ, BXE, EZ), 0.02, 'red'); mapAdd(0, rect(EX - 4, MPZ, BXE, EZ), 'walk');
+  for (const p of UNDER2) for (let x = 31; x < 62; x += 5) for (let z = -37; z < -4; z += 5) if (insidePoly(x, z, p)) lamp(x, z, L[1] - SL);
+  lamps(36, -32, 56, -16, L[4] - SL);
+  // straight stair 3F → 2F (drawn as steps, walked as a ramp; underside at 2F slab level so the 1F hallway runs beneath)
+  const N = 24;
+  for (let i = 0; i < N; i++){ const va = SV0 + (SV1 - SV0)*i/N, vb = SV0 + (SV1 - SV0)*(i+1)/N; put(prismGeo(uvRect(-SW, SW, va, vb), L[1] - SL, stairTop((va + vb)/2)), 'pave'); }
+  ramp(STAIRH, L[1] - SL, (x, z) => stairTop(vOf(x, z)));
+  for (const u of [-SW/3, SW/3]){ const A = UV(u, SV0), B = UV(u, SV1); bar([A[0], L[2] + 0.9, A[1]], [B[0], L[1] + 0.9, B[1]], 0.06, 'rail'); }
+  // half-round 2F landing + fan flight down to 1F
+  solid(LANDING, L[1] - SL, L[1], 'pave');
+  for (let i = 0; i < 16; i++){ const ra = RL + (RF - RL)*i/16, rb = RL + (RF - RL)*(i+1)/16; put(prismGeo(fanSector(ra, rb), 0, fanTop((ra + rb)/2)), 'pave'); }
+  ramp(fanSector(RL, RF), 0, (x, z) => fanTop(fanR(x, z)));
+  for (const a of [1.5, 1.85, 2.2]){
+    const A = fanAt(RL, a), B = fanAt(RF - 0.3, a);
+    bar([A[0], fanTop(RL) + 0.9, A[1]], [B[0], fanTop(RF - 0.3) + 0.9, B[1]], 0.06, 'rail');
+    for (let t = 0; t <= 1.001; t += 0.25){ const r = RL + (RF - 0.3 - RL)*t, P = fanAt(r, a), h = fanTop(r); bar([P[0], h, P[1]], [P[0], h + 0.9, P[1]], 0.05, 'rail'); }
+  }
+  for (const f of [0, 1]) { mapAdd(f, fanSector(RL, RF), 'stair'); mapAdd(f, LANDING, 'stair'); }
+  mapAdd(1, STAIRH, 'stair'); mapAdd(2, STAIRH, 'stair');
+  // 2F passage (north gallery → landing), solid underneath: no 1F path on this side of the stair
+  for (const p of PASS2){ solid(p, 0, L[1], 'wall'); floorF(p, L[1] + 0.012, 'red'); mapAdd(1, p, 'walk'); }
+  zone('二樓通道 2F Passage', 1, NX1, -26, 38, NGZ);
+  // railings: 2F passage edges, 3F hall edges around the stair opening, the voids and the bridge strip
+  const zRay = fanAt((NGZ - FC[1]) / Math.sin(FA1), FA1);
+  railing(...fanAt(RL, FA1), ...zRay, L[1]);
+  const aC = TAU - Math.acos((PX - FC[0]) / RF), arc = Array.from({length:7}, (_, i) => fanAt(RF, aC + (FA2 - aC)*i/6));
+  for (let i = 0; i < 6; i++) railing(...arc[i], ...arc[i + 1], L[1]);
+  railing(NX1 + 0.13, NZ, PX, NZ, L[1]); railZ(PX, NZ, arc[0][1], L[1]);
+  railing(...UV(-SW, SV0), ...UV(-SW, SV1), L[2]); railing(...UV(SW, SV0), ...UV(SW, SV1), L[2]); railing(...UV(-SW, SV1), ...UV(SW, SV1), L[2]);
+  railPoly(VNW, L[2]); railPoly(VSE, L[2]);
+  const bW = [NWALK[1][0], NWALK[1][0]], fv = F3.findIndex(([x, z]) => Math.abs(vOf(x, z) - FV) < 0.01 && z > EZ - 0.01);
+  const SWa = F3[fv], zW = CM[1] + ((FV - (NWALK[1][0] - CM[0])*EN[0]) / EN[1]);   // bridge strip edge: from the health-centre wall to NWALK
+  const zN = EZ - 3, xN = CM[0] + ((FV - (zN - CM[1])*EN[1]) / EN[0]);         // where the bridge strip edge meets the walkway's north edge
+  railing(xN, zN, NWALK[1][0], zW, L[2]);
+  // 3F walkway outside 健康中心: along its north face (joins the entrance bridge) and west face, to the lake-side walkway
+  for (const p of [rect(HW_X, zN, Math.max(xN, SWa[0]) + 0.5, EZ), rect(HW_X, EZ, EX, SGZ)]){ solid(p, L[2] - SL, L[2], 'slab'); floorF(p, L[2] + 0.013, 'red'); mapAdd(2, p, 'walk'); }
+  railX(HW_X, xN, zN, L[2]); railZ(HW_X, zN, SGZ, L[2]);
+  for (const z of [4, 14]) pillar(HW_X + 0.4, z, 0, L[1] - SL, 0.3);
+  // 2F deck: from the stair landing (south-east slice of the fan) over the red-arrow path to the east-block walkway
+  { const xR = FC[0] + Math.cos(FAD)*(MPZ - FC[1])/Math.sin(FAD), A = fanAt(RL - 0.2, FA0), B = fanAt(RF, FA0), C = [52.5, EZ], D = fanAt(RL - 0.2, FAD);
+    const DECK2 = [A, B, C, [HW_X, EZ], [HW_X, MPZ], [xR, MPZ], D];
+    solid(DECK2, L[1] - SL, L[1], 'slab'); floorF(DECK2, L[1] + 0.013, 'red'); mapAdd(1, DECK2, 'walk');
+    railing(...B, ...C, L[1]); railZ(HW_X, MPZ, EZ, L[1]); railX(HW_X, xR, MPZ, L[1]); railing(xR, MPZ, ...D, L[1]);
+    for (const P of [B, [xR - 0.5, MPZ + 0.4]]) pillar(P[0] - 0.3, P[1] + 0.3, 0, L[1] - SL, 0.3);
+    zone('二樓連廊 2F Link (stair ↔ east walkway)', 1, HW_X, -14, 53, EZ); }
+  // 2F: same walkway along the west face, from the north end of the east block to the lake-side 2F walkway
+  { const p = rect(HW_X, EZ, EX, SGZ); solid(p, L[1] - SL, L[1], 'slab'); floorF(p, L[1] + 0.013, 'red'); mapAdd(1, p, 'walk');
+    railZ(HW_X, EZ, SGZ, L[1]); zone('東側走廊 Walkway (east block 2F)', 1, HW_X, EZ, EX, SGZ); }
+  zone('健康中心外走廊 Walkway (健康中心)', 2, HW_X, zN, EX, SGZ);
+  railZ(NWALK[1][0], zW, NGZ, L[2]);
+}
+// ---------- exterior walls (brick with windows, per storey so windows line up) ----------
+const EXT = {lintel:'brick'};
+for (let f = 0; f < 4; f++){
+  const y0 = L[f], y1 = L[f] + H;
+  wallLine(BXW, TN, WX, TN, y0, y1, 'brick', [], EXT);                                                // theatre: blank
+  wallLine(WX, TN, WX, -BZ, y0, y1, 'brick', [], EXT);
+  wallLine(WX, -BZ, P1[0], -BZ, y0, y1, 'brickWin', f === 2 ? [[SIDE_X - WX, 3, 2.7]] : [], EXT);    // 3F side entrance
+  wallLine(BXW, TN, BXW, TZ1, y0, y1, 'brick', f === 0 ? [[BS_DOOR - TN, 1.8, 2.6]] : [], EXT);     // back-stage door
+  wallLine(BXW, TZ1, BXW, SLOT[0], y0, y1, 'brickWin', [], EXT);
+  wallLine(BXW, SLOT[1], BXW, BZ, y0, y1, 'brickWin', [], EXT);
+  for (const z of SLOT) wallLine(BXW, z, WX, z, y0, y1, 'brickWin', [], EXT);                       // walls along the open slope
+  if (f < 2){ wallLine(BXW, BZ, RS_X - RS_R, BZ, y0, y1, 'brickWin', [], EXT); wallLine(RS_X + RS_R, BZ, WX, BZ, y0, y1, 'brickWin', [], EXT); }   // restaurant bay
+  else wallLine(BXW, BZ, WX, BZ, y0, y1, 'brickWin', [], EXT);
+  if (f < 3) wallLine(EX, BZ, BXE, BZ, y0, y1, 'brickWin', [], EXT);
+}
+// entrance face (3F glass with the main doors, brick above), east face above street level
+wallLine(...P2, ...P3, L[2], L[2] + 3, 'glass', [[CHL/2, 8, 3]], {cam:false, cast:false, t:0.1});
+for (let s = 0; s <= CHL + 0.01; s += 2) if (Math.abs(s - CHL/2) > 4.3) bar([P2[0] + CU[0]*s, L[2], P2[1] + CU[1]*s], [P2[0] + CU[0]*s, L[2] + 3, P2[1] + CU[1]*s], 0.08, 'steel');
+wseg(...P2, ...P3, L[2] + 3, L[3], 'brick');
+wallLine(...P2, ...P3, L[3], L[4], 'brickWin', [], EXT);
+for (const [a, b] of [[P1, P2], [P3, P4]]) for (const f of [2, 3]) wallLine(...a, ...b, L[f], L[f] + H, 'brickWin', [], EXT);
+wseg(BXE, P4[1], BXE, EZ, L[2], L[4], 'brick');
+wallLine(BXE, EZ, BXE, BZ, L[2], L[3], 'brickWin', [], EXT);
+wseg(EX, EZ, BXE, EZ, L[3], L[4], 'brick');
+// roof parapets
+for (const [a, b] of [[[BXW,TN], [WX,TN]], [[WX,TN], [WX,-BZ]], [[WX,-BZ], P1], [P1, P2], [P2, P3], [P3, P4], [P4, [BXE, EZ]], [[BXW,TN],[BXW,SLOT[0]]], [[BXW,SLOT[1]],[BXW,BZ]], [[BXW,BZ],[WX,BZ]], [[BXW,SLOT[0]],[WX,SLOT[0]]], [[BXW,SLOT[1]],[WX,SLOT[1]]]]) wseg(...a, ...b, L[4], L[4] + 0.9, 'brick');
+for (const [a, b] of [[[EX,BZ],[BXE,BZ]], [[BXE,EZ],[BXE,BZ]], [[WGX,BZ],[EX,BZ]]]) wseg(...a, ...b, L[3], L[3] + 0.9, 'brick');
+sign('活動中心', 'Student Activity Center', CM[0] + CN[0]*0.2, L[2] + 3.5, CM[1] + CN[1]*0.2, Math.atan2(CN[0], CN[1]), 6.5, 1.3, '#4a4a46');
+
+// ---------- atrium: pillars, railings ----------
+for (const x of [-15, -7, 1, 9, 22]) pillar(x, NGZ, 0, L[4]);
+for (const z of [NGZ, -6, 8, 14, SGZ]) pillar(WGX, z, 0, L[4]);
+for (const x of [-8, 0, 8, 24, 32]) pillar(x, SGZ, 0, L[3]);
+for (const x of [-20, -12, -4, 4, 12, 20, 28, 36]) pillar(x, BZ, 0, L[3]);
+// bridge: one diagonal 3F bridge (green in the drawing), north gallery → south-west corner of the atrium
+const BR3 = [[18.5, NGZ], [WGX, 19.5]];
+const BRIDGES = [];
+function bridgeSide([A, B], s, axis, val){         // where a bridge side edge (s = ±1, 1.5 m off the centre line) crosses x = val or z = val
+  const l = Math.hypot(B[0] - A[0], B[1] - A[1]), ux = (B[0] - A[0])/l, uz = (B[1] - A[1])/l, px = A[0] - uz*1.5*s, pz = A[1] + ux*1.5*s;
+  if (axis === 'z'){ const t = (val - pz)/uz; return [px + ux*t, val]; }
+  const t = (val - px)/ux; return [val, pz + uz*t];
+}
+const gapX = (BR, zc) => { const a = bridgeSide(BR, 1, 'z', zc)[0], b = bridgeSide(BR, -1, 'z', zc)[0]; return [Math.min(a, b), Math.max(a, b)]; };
+const gapZ = (BR, xc) => { const a = bridgeSide(BR, 1, 'x', xc)[1], b = bridgeSide(BR, -1, 'x', xc)[1]; return [Math.min(a, b), Math.max(a, b)]; };
+const TG = [TOWER_C[1] - CSW - 0.05, TOWER_C[1] + CSW + 0.05];              // circle stair landing gap in the west gallery railing
+railZ(WGX, NGZ, SGZ, L[1], [TG]);
+railX(WGX, fanAt((NGZ - FC[1]) / Math.sin(FA1), FA1)[0], NGZ, L[1]);
+railX(WGX, EX, SGZ, L[1], [[HW_X, EX]]);
+railX(WX, EX, BZ, L[1]);
+railZ(WGX, NGZ, SGZ, L[2], [TG, gapZ(BR3, WGX)]);
+railX(WGX, NWALK[1][0], NGZ, L[2], [gapX(BR3, NGZ)]);
+railX(WGX, EX, SGZ, L[2], [[HW_X, EX]]);
+railX(WX, EX, BZ, L[2]);
+railZ(WGX, NGZ, BZ, L[3], [TG]);                                // 4F: north + west galleries only
+railX(WGX, NX1, NGZ, L[3]); railZ(NX1, NZ, NGZ, L[3]);
+railX(WX, WGX, BZ, L[3]);
+for (const f of [2, 3]) railZ(WX, SLOT[0], SLOT[1], L[f]);           // 3F/4F gallery edge over the open slope
+railZ(WX, SLOT[0], SLOPE_Z1, L[1]);                                    // 2F gallery edge over the 1F path beside the slope
+
+function deck(pts, y, f){ solid(pts, y - 0.5, y, 'concrete'); floorF(pts, y + 0.012, 'red'); mapAdd(f, pts, 'bridge'); }
+function diagBridge([A, B], f){                     // A on a gallery edge z = A.z, B on a gallery edge x = B.x
+  const y = L[f], dx = B[0] - A[0], dz = B[1] - A[1], l = Math.hypot(dx, dz), ux = dx/l, uz = dz/l, nx = -uz*1.5, nz = ux*1.5;
+  const zA = A[1] - Math.sign(uz)*1.0, xB = B[0] + Math.sign(ux)*1.0;        // 1 m into the galleries at each end
+  deck([bridgeSide([A, B], 1, 'z', zA), bridgeSide([A, B], 1, 'x', xB), bridgeSide([A, B], -1, 'x', xB), bridgeSide([A, B], -1, 'z', zA)], y, f);
+  for (const s of [1, -1]) railing(...bridgeSide([A, B], s, 'z', A[1]), ...bridgeSide([A, B], s, 'x', B[0]), y);
+  pillar(A[0] + dx/2, A[1] + dz/2, 0, y - 0.5, 0.35);
+  BRIDGES.push({A, B, y});
+}
+diagBridge(BR3, 2);
+
+// ---------- switchback stairs: two straight flights per storey (lane 1 out, lane 2 back) + a turn landing at the far end ----------
+// o = {O:[x,z] start of the flights, a:[dx,dz] flight direction, s:[dx,dz] across (lane 1 at -s), near: floor landing depth,
+//      run: flight length, W: half width, semi: half-round turn, open: guards on the outer edges, floors: storeys climbed}
+function switchback(o){
+  const {O, a, s, near, run, W, semi, open, floors} = o, g = 0.1, GW = 0.3, GH = 1.05, P = (t, w) => [O[0] + a[0]*t + s[0]*w, O[1] + a[1]*t + s[1]*w];
+  const R = (t0, t1, w0, w1) => [P(t0, w0), P(t1, w0), P(t1, w1), P(t0, w1)], tOf = (x, z) => (x - O[0])*a[0] + (z - O[1])*a[1];
+  const half = H/2, far = semi ? (() => { const c = P(run, 0), a0 = Math.atan2(a[1], a[0]); return Array.from({length:13}, (_, i) => { const t = a0 - Math.PI/2 + Math.PI*i/12; return [c[0] + W*Math.cos(t), c[1] + W*Math.sin(t)]; }); })() : R(run, run + o.farD, -W, W);
+  for (let f = 0; f < floors; f++){
+    const y = L[f];
+    for (const [lane, w0, w1, base, dir] of [[1, -W, -g, y, 1], [2, g, W, y + half, -1]]){
+      const top = t => base + half*Math.max(0, Math.min(1, dir > 0 ? t/run : (run - t)/run)), y0 = f === 0 ? 0 : base - 0.15;
+      ramp(R(0, run, w0, w1), y0, (x, z) => top(tOf(x, z)));
+      for (let i = 0; i < 12; i++){ const ta = run*i/12, tb = run*(i+1)/12, h = top((ta + tb)/2); put(prismGeo(R(ta, tb, w0, w1), f === 0 ? 0 : Math.max(y0, h - 0.7), h), 'pave'); }
+      if (open){                                                  // outer guard: stone wall, railing height, stepping with the flight
+        const [wi, wo] = lane === 1 ? [-W, -W + GW] : [W - GW, W];
+        ramp(R(0, run, wi, wo), y0, (x, z) => top(tOf(x, z)) + GH);
+        for (let i = 0; i < 12; i++){ const ta = run*i/12, tb = run*(i+1)/12, h = top(tb); put(prismGeo(R(ta, tb, wi, wo), f === 0 ? 0 : Math.max(y0, h - 0.7), h + GH), 'concrete'); }
+      }
+    }
+    solid(far, f === 0 ? 0 : y + half - SL, y + half, 'pave');                                   // turn landing
+    if (open && semi){ const c = P(run, 0), a0 = Math.atan2(a[1], a[0]); solid(sectorPts(c[0], c[1], W - GW, W, a0 - Math.PI/2, a0 + Math.PI/2, 14), y + half, y + half + GH, 'concrete'); }
+    mapAdd(f, [...R(-near, run, -W, W)], 'stair');
+  }
+  for (let f = 1; f <= floors; f++){                                                            // floor landings
+    solid(R(-near, 0, -W, W), L[f] - SL, L[f], 'pave');
+    if (open) for (const [w0, w1] of [[-W, -W + GW], [W - GW, W]]) solid(R(-near + 0.05, 0, w0, w1), L[f], L[f] + GH, 'concrete');
+  }
+  mapAdd(floors, R(-near, run, -W, W), 'stair');
+  solid(R(0, GW, -W, -g), L[floors], L[floors] + GH, 'concrete');                                  // top floor: wall across lane 1 (no flight further up)
+  solid(R(0, run, -g, g), 0, L[floors] + 1.0, 'concrete');                                      // core wall between the lanes
+}
+// circle stair beside the 1F plaza: straight flights, half-round turn (1F–4F, open in the atrium)
+switchback({O:TOWER_C, a:[1, 0], s:[0, 1], near:TOWER_C[0] - WGX, run:4, W:CSW, semi:true, open:true, floors:3});
+zone('旋轉梯 Circle Stair', 0, WGX, TOWER_C[1] - CSW, TOWER_C[0] + 4 + CSW, TOWER_C[1] + CSW, null, -0.5, 13);
+
+// ---------- glass vault over the atrium ----------
+{
+  const VX0 = WGX, VX1 = EX, ZC = (NGZ + SGZ)/2, VW = (SGZ - NGZ)/2, RV = (VW*VW + 9) / 6, cy = L[4] + 3 - RV, d = Math.asin(VW / RV), len = VX1 - VX0;
+  const g = new THREE.CylinderGeometry(RV, RV, len, 40, 1, true, Math.PI/2 - d, 2*d);
+  g.rotateZ(Math.PI/2); g.translate((VX0 + VX1)/2, cy, ZC); put(g, 'roofGlass', false);
+  for (let x = VX0; x <= VX1 + 0.01; x += len/10){
+    let prev = null;
+    for (let i = 0; i <= 10; i++){ const a = -d + 2*d*i/10, p = [x, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)]; if (prev) bar(prev, p, 0.14, 'steel', 0.3); prev = p; }
+  }
+  for (const a of [-d, -d/2, 0, d/2, d]) bar([VX0, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], [VX1, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], 0.1, 'steel');
+}
+
+// ---------- entrance canopy outside the main doors (street level) ----------
+{
+  const ch = L[2] + 6.5, P = (s, n) => [CM[0] + CU[0]*s + CN[0]*n, CM[1] + CU[1]*s + CN[1]*n];
+  for (const s of [-5, 5]) pillar(...P(s, 7.5), L[2], ch, 0.6);
+  put(prismGeo([P(-6.5, 0.2), P(6.5, 0.2), P(6.5, 8.5), P(-6.5, 8.5)], ch, ch + 0.12), 'roofGlass', false);
+  for (let s = -6.5; s <= 6.51; s += 1.625) bar([...P(s, 0.2).slice(0, 1), ch, P(s, 0.2)[1]], [P(s, 8.5)[0], ch, P(s, 8.5)[1]], 0.1, 'steel');
+}
+
+// ---------- rooms ----------
+const CLUBS = ['吉他社 Guitar Club','熱舞社 Dance Club','攝影社 Photography','登山社 Mountaineering','動漫社 Anime Club','桌遊社 Board Games','國標社 Ballroom Dance',
+  '魔術社 Magic Club','天文社 Astronomy','管樂社 Wind Band','合唱團 Choir','戲劇社 Drama Club','書法社 Calligraphy','圍棋社 Go Club','詩社 Poetry Club',
+  '康輔社 Recreation','童軍團 Scouts','茶藝社 Tea Club','劍道社 Kendo','跆拳道社 Taekwondo','電影社 Film Club','單車社 Cycling','攀岩社 Climbing',
+  '服務隊 Service Team','學生會 Student Union','學生議會 Student Council','咖啡社 Coffee Club','手語社 Sign Language','街舞社 Street Dance',
+  '西洋劍社 Fencing','排球社 Volleyball','急救社 First Aid','模型社 Model Club','科幻社 Sci-Fi Club','文學社 Literature','鋼琴社 Piano Club'];
+let clubI = 0;
+const club = (o = {}) => ({n: CLUBS[clubI++ % CLUBS.length], k:'club', ...o});
+const FLOORKEY = {food2:'wood', band:'white', club:'white', office:'white', book:'white', mart:'white', health:'white', counsel:'white', passage:'red', big:'white'};
+
+// furniture in a room's local frame: u along the front wall, v inward (P maps (u, v) → world)
+function furnish(s, w, d, P, y, doorU){
+  const fb = (u0, v0, u1, v1, h, key, yb = 0) => { v1 = Math.min(v1, d - 0.15); if (v1 - v0 < 0.3) return; const [ax, az] = P(u0, v0), [bx, bz] = P(u1, v1); boxS(ax, az, bx, bz, y + yb, y + yb + h, key, {cam:false}); };
+  const clear = (u0, u1, v0) => doorU.every(du => v0 > 2.6 || u1 < du - 1.2 || u0 > du + 1.2);
+  if (s.k === 'club'){
+    const variant = Math.floor(rand()*3);
+    fb(w/2 - 1, 5.2, w/2 + 1, 6.2, 0.76, 'wood');                              // meeting table
+    for (const [du, dv] of [[-1.4, 0], [1.4, 0], [0, -0.9], [0, 1.4]]) fb(w/2 + du - 0.22, 5.7 + dv - 0.22, w/2 + du + 0.22, 5.7 + dv + 0.22, 0.45, 'sofa');
+    fb(0.3, d - 0.6, 2.6, d - 0.1, 1.9, 'dark');                                // bookshelf on the back wall
+    fb(w - 2.3, d - 0.55, w - 0.3, d - 0.1, 1.85, 'metal');                     // lockers
+    if (clear(w - 1, w, 2.6)) fb(w - 0.95, 2.8, w - 0.15, 5.0, 0.85, 'sofa');    // couch
+    if (variant >= 1){ fb(w/2 - 0.4, d - 1.6, w/2 + 0.4, d - 0.8, 0.6, 'box'); fb(w/2 - 0.3, d - 1.5, w/2 + 0.3, d - 0.9, 0.5, 'box', 0.6); }
+    if (variant === 2){ fb(0.3, 7, 1.1, 9.5, 0.76, 'wood'); fb(w - 1.1, 7.5, w - 0.3, 9.8, 1.1, 'box'); }
+    if (variant === 0){ fb(0.3, 6.5, 1.0, 10.5, 1.4, 'metal'); }
+  } else if (s.k === 'office'){
+    for (let v = 3.5; v < d - 2; v += 3) for (let u = 1.6; u < w - 1.4; u += 3.2){
+      fb(u - 0.7, v, u + 0.7, v + 0.7, 0.76, 'wood'); fb(u - 0.25, v + 0.85, u + 0.25, v + 1.3, 0.45, 'sofa');
+    }
+    for (let u = 0.4; u < w - 1.4; u += 2.4) fb(u, d - 0.55, u + 2.0, d - 0.1, 1.8, 'metal');
+  }
+}
+function lamps(x0, z0, x1, z1, y){
+  const nx = Math.max(1, Math.round((x1 - x0) / 6)), nz = Math.max(1, Math.round((z1 - z0) / 6));
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) lamp(x0 + (x1 - x0)*(i + 0.5)/nx, z0 + (z1 - z0)*(j + 0.5)/nz, y);
+}
+// front = the edge facing the gallery: 's' | 'n' | 'e' | 'w'; doors are world coordinates along that edge
+const FRONT = {
+  s: (x0, z0, x1, z1) => ({A:[x0, z1], B:[x1, z1], P:(u, v) => [x0 + u, z1 - v], W:x1 - x0, D:z1 - z0, rot:0, at:x0}),
+  n: (x0, z0, x1, z1) => ({A:[x0, z0], B:[x1, z0], P:(u, v) => [x0 + u, z0 + v], W:x1 - x0, D:z1 - z0, rot:Math.PI, at:x0}),
+  e: (x0, z0, x1, z1) => ({A:[x1, z0], B:[x1, z1], P:(u, v) => [x1 - v, z0 + u], W:z1 - z0, D:x1 - x0, rot:Math.PI/2, at:z0}),
+  w: (x0, z0, x1, z1) => ({A:[x0, z0], B:[x0, z1], P:(u, v) => [x0 + v, z0 + u], W:z1 - z0, D:x1 - x0, rot:-Math.PI/2, at:z0}),
+};
+function room(f, x0, z0, x1, z1, front, s){
+  const y = L[f], ceil = y + H - SL, F = FRONT[front](x0, z0, x1, z1);
+  const doorU = (s.doors || [F.at + 1.5]).map(d => d - F.at);
+  if (s.stair){ wallLine(...F.A, ...F.B, y, ceil, 'wall', doorU.map(u => [u, 2.0, 2.5]), {lintel:'wall'}); return; }
+  if (!s.open){
+    if (s.glass){
+      wallLine(...F.A, ...F.B, y, y + 3, 'glass', doorU.map(u => [u, 2.4, 3]), {cam:false, cast:false, t:0.08});
+      wseg(...F.A, ...F.B, y + 3, ceil, 'wall');
+      for (let u = 0; u <= F.W + 0.01; u += 2) if (doorU.every(du => Math.abs(u - du) > 1.3)){ const [x, z] = F.P(u, 0); bar([x, y, z], [x, y + 3, z], 0.08, 'steel'); }
+    } else wallLine(...F.A, ...F.B, y, ceil, 'wallWin', doorU.map(u => [u, s.w || 1.6, 2.4]), {lintel:'wall'});
+  }
+  floorF(rect(x0, z0, x1, z1), y + 0.02, s.floor || FLOORKEY[s.k] || 'white', s.holes);
+  lamps(x0, z0, x1, z1, ceil);
+  zone(s.n, f, x0, z0, x1, z1, s.k);
+  if (!s.open && !s.noSign && doorU.length){ const [a, b] = split(s.n), [sx, sz] = F.P(s.signU ?? doorU[0], -0.16); sign(a, b, sx, y + 2.85, sz, F.rot, 2.6, 0.62, '#2f4f63'); }
+  furnish(s, F.W, F.D, F.P, y, doorU);
+}
+function rowX(f, z0, z1, front, divs, specs){
+  for (let i = 0; i < specs.length; i++){ if (i > 0) wseg(divs[i], z0, divs[i], z1, L[f], L[f] + H - SL, 'wall'); room(f, divs[i], z0, divs[i + 1], z1, front, specs[i]); }
+}
+function rowZ(f, x0, x1, front, divs, specs){
+  for (let i = 0; i < specs.length; i++){ if (i > 0) wseg(x0, divs[i], x1, divs[i], L[f], L[f] + H - SL, 'wall'); room(f, x0, divs[i], x1, divs[i + 1], front, specs[i]); }
+}
+
+// --- north rooms: east end wall (3F: side door of 麗文 into the entrance hall) ---
+for (let f = 0; f < 4; f++) wallLine(NX1, -BZ, NX1, NZ, L[f], L[f] + H - SL, 'wall', f === 2 ? [[6, 2.4, 2.8]] : f === 0 ? [[8, 1.8, 2.6]] : [], {lintel:'wall'});   // 3F: 麗文 side door; 1F: 小吃街 ↔ hallway
+// --- 1F north: 小吃街 Snack Street (student cafeteria) ---
+{
+  const y = 0, ceil = L[1] - SL, doors = [-18, 0, 18];
+  wallLine(WX, NZ, NX1, NZ, y, 3, 'glass', doors.map(x => [x - WX, 3, 3]), {cam:false, cast:false, t:0.08});
+  wseg(WX, NZ, NX1, NZ, 3, ceil, 'wallB');
+  for (let x = WX; x <= NX1 + 0.01; x += 2) if (doors.every(dx => Math.abs(x - dx) > 1.7)) bar([x, 0, NZ], [x, 3, NZ], 0.08, 'steel');
+  floorF(rect(WX, NZ, NX1, -20), 0.02, 'red'); floorF(rect(WX, -20, NX1, -BZ), 0.02, 'green');
+  lamps(WX, -BZ, NX1, NZ, ceil);
+  zone('小吃街 Snack Street', 0, WX, -BZ, NX1, NZ, 'food');
+  for (const x of [-9, 9]) sign('小吃街', 'Snack Street', x, 3.1, NZ + 0.2, 0, 4.0, 0.9, '#e0457b');
+  const STALLS = ['佳豐麵攤', '婆媽麵食', '中正排骨飯', '和風拉麵', '微風蔬果', '自助餐', '早午餐', '滷味', '便當', '珍奶', '水餃', '咖哩飯', '鐵板燒'];
+  const n = Math.round((NX1 - WX) / 5.2), w = (NX1 - WX) / n;
+  for (let i = 0; i < n; i++){
+    const x0 = WX + i*w, x1 = x0 + w;
+    if (i > 0) wseg(x0, -BZ, x0, -24.6, y, ceil, 'wall');
+    boxS(x0 + 0.3, -25.2, x1 - 1.2, -24.6, 0, 1.0, 'counter', {cam:false});   // counter, gap at one end to slip behind
+    boxS(x0 + 0.4, -BZ + 0.3, x1 - 0.4, -BZ + 1.0, 0, 0.9, 'metal', {cam:false});
+    sign(STALLS[i % STALLS.length], '', (x0 + x1)/2, 2.9, -24.45, 0, w - 0.8, 0.7, ['#c0392b','#d35400','#16a085','#2c3e50','#8e44ad'][i % 5]);
+  }
+  for (let x = WX + 3; x < NX1 - 2; x += 3.6){
+    if (doors.some(dx => Math.abs(x - dx) < 1.8)) continue;
+    for (const z of [-21.6, -18.6]){
+      boxS(x - 0.4, z - 1.2, x + 0.4, z + 1.2, 0.7, 0.78, 'wood', {cam:false});
+      boxS(x - 0.1, z - 0.9, x + 0.1, z + 0.9, 0, 0.7, 'metal', {noCol:true});
+      for (const s of [-1, 1]) boxS(x + s*0.75 - 0.17, z - 1.2, x + s*0.75 + 0.17, z + 1.2, 0, 0.45, 'wood', {cam:false});
+    }
+  }
+}
+// --- 2F north: clubs + 麗文 2F ---
+rowX(1, -BZ, NZ, 's', [WX, -18, -8, 2, 12, NX1], [club(), club(), club(), club(), {n:'麗文校園書局 Liwen Bookstore 2F', k:'book', glass:true, doors:[26], noSign:true}]);
+// --- 3F north: side entrance, FamilyMart, 麗文 (walking in from the main entrance they are on your right) ---
+rowX(2, -BZ, NZ, 's', [WX, -9, 12, NX1], [{n:'側門大廳 Side Entrance', k:'passage', open:true},
+  {n:'全家便利商店 FamilyMart', k:'mart', glass:true, doors:[1], noSign:true}, {n:'麗文校園書局 Liwen Bookstore', k:'book', glass:true, doors:[26], noSign:true, holes:[holeLib]}]);
+// --- 4F north: clubs ---
+rowX(3, -BZ, NZ, 's', [WX, -18, -8, 2, 12, 21, NX1], [club(), club(), club(), club(), club(), club()]);
+
+// --- west block (1F–4F): rooms face the west gallery / plaza; the slot between them is the slope ---
+// two bands of rooms (theatre side, south side), each with a corridor from the west gallery; the open slot between them is the slope
+const WDIV = [BXW, -64, -52, -40, WX];
+const WB = (f, z0, z1, front, divs, specs) => rowX(f, z0, z1, front, divs, specs);
+for (let f = 0; f < 4; f++){
+  const y = L[f], c = y + H - SL;
+  // gallery-side end walls of the room bands (corridors stay open to the gallery)
+  wallLine(WX, C1Z[1], WX, SLOT[0], y, c, 'wallWin', [], {lintel:'wall'});
+  wallLine(WX, SLOT[1], WX, C2Z[0], y, c, 'wallWin', [], {lintel:'wall'});
+  wallLine(WX, C2Z[1], WX, BZ, y, c, 'wallWin', [], {lintel:'wall'});
+  lamps(BXW, C1Z[0], WX, C1Z[1], c); lamps(BXW, C2Z[0], WX, C2Z[1], c);
+  zone('西側走廊 West Corridor', f, BXW, C1Z[0], WX, C1Z[1]); zone('西側走廊 West Corridor', f, BXW, C2Z[0], WX, C2Z[1]);
+  // rooms south of the corridor 2: club | stairwell | club | restaurant (1F–2F) or clubs (3F–4F)
+  const south = f < 2
+    ? [club({doors:[-71]}), {stair:true, n:'樓梯 Stairs', doors:[(STW[0] + STW[1])/2]}, club({doors:[-55]}), {n:'餐廳 Restaurant', k:'food2', doors:[-44, -31]}]
+    : [club({doors:[-71]}), {stair:true, n:'樓梯 Stairs', doors:[(STW[0] + STW[1])/2]}, club({doors:[-55]}), club({doors:[-44]}), club({doors:[-33]})];
+  WB(f, C2Z[1], BZ, 'n', f < 2 ? [BXW, ...STW, -46, WX] : [BXW, ...STW, -46, -37, WX], south);
+}
+// band 1 (between the theatre and the slope), rooms open north onto corridor 1 (along the theatre wall)
+WB(0, C1Z[1], SLOT[0], 'n', [BXW, -52, WX], [{n:'學務處 Student Affairs', k:'office', doors:[-60]}, {n:'課外活動組 Extracurricular Activities', k:'office', doors:[-36]}]);
+WB(1, C1Z[1], SLOT[0], 'n', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+WB(2, C1Z[1], SLOT[0], 'n', [BXW, -52, -40, WX], [{n:'舞蹈教室 Dance Studio', k:'big', floor:'wood', doors:[-58]}, club({doors:[-43]}), club({doors:[-31]})]);
+WB(3, C1Z[1], SLOT[0], 'n', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+// band 2 north (between the slope and corridor 2), rooms open south onto corridor 2
+WB(0, SLOT[1], C2Z[0], 's', [BXW, -52, WX], [{n:'生活輔導組 Student Life', k:'office', doors:[-60]}, {n:'會議室 Meeting Room', k:'office', doors:[-36]}]);
+WB(1, SLOT[1], C2Z[0], 's', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+WB(2, SLOT[1], C2Z[0], 's', [BXW, -52, -40, WX], [{n:'多功能教室 Multipurpose Room', k:'big', doors:[-64]}, club({doors:[-43]}), club({doors:[-31]})]);
+WB(3, SLOT[1], C2Z[0], 's', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+{ // dance studio mirrors + multipurpose tables
+  const y = L[2];
+  put(prismGeo(rect(BXW + 1, SLOT[0] - 0.2, -53, SLOT[0] - 0.15), y + 0.2, y + 2.6), 'mirror');
+  bar([BXW + 1.5, y + 1.0, SLOT[0] - 0.4], [-53.5, y + 1.0, SLOT[0] - 0.4], 0.05, 'steel');
+  for (let x = -73; x < -56; x += 3.5) boxS(x, 9.5, x + 1.2, 13, y, y + 0.76, 'wood', {cam:false});
+  boxS(BXW + 0.4, 9, BXW + 0.8, 14, y + 0.9, y + 2.3, 'screen', {noCol:true});
+}
+// slope (open to the sky): from the 2F west gallery (high end, inside) down to the ground outside the west face
+{
+  const [z0, z1] = [SLOPE_Z1, SLOT[1]], top = x => L[1] * Math.max(0, Math.min(1, (x - BXW) / (WX - BXW)));
+  const g = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(BXW, 0), new THREE.Vector2(WX, 0), new THREE.Vector2(WX, L[1])]), {depth:z1 - z0, bevelEnabled:false});
+  g.translate(0, 0, z0); put(g, 'red');
+  ramp(rect(BXW, z0, WX, z1), 0, x => top(x));
+  for (const z of [z0 + 0.1, z1 - 0.3]) bar([BXW, 0.9, z], [WX, L[1] + 0.9, z], 0.06, 'rail');
+  ramp(rect(BXW, z0, WX, z0 + 0.12), 0, x => top(x) + 1.0, {cam:false});        // balustrade between the slope and the 1F path
+  put(prismGeo(rect(BXW, z0, WX, z0 + 0.12), 0, 0.6), 'concrete');
+  zone('坡道 Slope (2F → 1F outside)', 0, BXW, z0, WX, z1, null, -0.5, 7.4);
+  floorF(rect(BXW, SLOT[0], WX, z0), 0.02, 'pave');
+  zone('坡道旁步道 Path beside the slope', 0, BXW, SLOT[0], WX, z0);
+  for (const f of [0, 1]) mapAdd(f, rect(BXW, z0, WX, z1), 'stair');
+  mapAdd(0, rect(BXW, SLOT[0], WX, z0), 'walk');
+}
+// indoor stair (1F–4F): square stairwell, two straight flights per storey; door from corridor 2 on every floor
+const STC = [(STW[0] + STW[1])/2, C2Z[1] + 2];
+switchback({O:STC, a:[0, 1], s:[1, 0], near:2, run:5, W:(STW[1] - STW[0])/2 - 0.125, semi:false, farD:BZ - 0.125 - STC[1] - 5, open:false, floors:4});
+// roof: small stair house around the top of the stairwell (door to the north) + rooftop plaza with a low wall around it
+{
+  const y = L[4], RH = 3, PW = 1.1, [x0, x1] = STW, z0 = C2Z[1];
+  wallLine(x0, z0, x1, z0, y, y + RH, 'brick', [[(x1 - x0)/2, 1.8, 2.4]], EXT);
+  for (const [a, b] of [[[x0, z0], [x0, BZ]], [[x1, z0], [x1, BZ]], [[x0, BZ], [x1, BZ]]]) wseg(...a, ...b, y, y + RH, 'brick');
+  solid(rect(x0 - 0.2, z0 - 0.2, x1 + 0.2, BZ + 0.2), y + RH, y + RH + 0.3, 'slab');
+  lamps(x0, z0, x1, BZ, y + RH);
+  sign('屋頂', 'Rooftop', (x0 + x1)/2, y + 2.75, z0 - 0.16, Math.PI, 2.2, 0.55, '#2f4f63');
+  zone('屋頂樓梯間 Stair House', 4, x0, z0, x1, BZ);
+  const PL = rect(BXW, SLOT[1], WX, BZ);
+  floorF(PL, y + 0.02, 'pave', [rect(x0, z0, x1, BZ)]);
+  for (const [a, b] of [[[BXW, SLOT[1]], [WX, SLOT[1]]], [[WX, SLOT[1]], [WX, BZ]], [[WX, BZ], [BXW, BZ]], [[BXW, BZ], [BXW, SLOT[1]]]]) wseg(...a, ...b, y, y + PW, 'brick');
+  zone('屋頂廣場 Rooftop Plaza', 4, BXW, SLOT[1], WX, BZ);
+  // benches + planters (cover for hiders)
+  for (const [x, z] of [[-72, 11], [-52, 11], [-40, 11], [-32, 22], [-50, 24]]){ boxS(x - 1, z - 1, x + 1, z + 1, y, y + 0.6, 'concrete'); const g = new THREE.IcosahedronGeometry(1.1, 0); g.scale(1, 0.8, 1); g.translate(x, y + 1.3, z); put(g, 'plant'); }
+  for (const [x, z, w, d] of [[-62, 10, 3.2, 0.6], [-45, 18, 0.6, 3.2], [-72, 21, 0.6, 3.2], [-34, 14, 3.2, 0.6]]) boxS(x - w/2, z - d/2, x + w/2, z + d/2, y, y + 0.45, 'wood');
+}
+zone('樓梯 Stairs (1F–4F)', 0, STW[0], C2Z[1], STW[1], BZ, null, -0.5, 13);
+// restaurant (1F–2F): the room behind + a half-round glass bay facing the lake (door to the lake shore on 1F)
+{
+  const ring = (y0, y1, key, a0 = 0, a1 = Math.PI, o) => solid(sectorPts(RS_X, BZ, RS_R, RS_R + 0.3, a0, a1, 16), y0, y1, key, o);
+  const half = sectorPts(RS_X, BZ, 0, RS_R + 0.3, 0, Math.PI, 24), g = 0.2;
+  for (let f = 0; f < 2; f++){
+    const y = L[f];
+    if (f === 0){ ring(y, y + 1.0, 'brick', 0, Math.PI/2 - g); ring(y, y + 1.0, 'brick', Math.PI/2 + g, Math.PI);
+                  ring(y + 1.0, y + 2.6, 'glass', 0, Math.PI/2 - g, {cam:false, cast:false}); ring(y + 1.0, y + 2.6, 'glass', Math.PI/2 + g, Math.PI, {cam:false, cast:false});
+                  ring(y + 2.6, y + 3.2, 'glass', 0, Math.PI, {cam:false, cast:false}); }
+    else { ring(y, y + 1.0, 'brick'); ring(y + 1.0, y + 3.2, 'glass', 0, Math.PI, {cam:false, cast:false}); }
+    ring(y + 3.2, y + H, 'brick');
+    floorF(half, y + 0.02, 'wood');
+    zone('餐廳 Restaurant', f, RS_X - RS_R, BZ, RS_X + RS_R, BZ + RS_R);
+    mapAdd(f, half, 'food');
+    for (const [x, z] of [[-41.5, 22.2], [-41.5, 25.6], [-31.5, 26], [-41.5, 30.5], [-32.5, 30.5]]){
+      put(cylGeo(x, z, y, y + 0.74, 0.55, 12), 'wood'); col(circlePts(x, z, 0.55, 8), y, y + 0.74, {cam:false});
+      for (const [dx, dz] of [[0.9, 0], [-0.9, 0]]) boxS(x + dx - 0.2, z + dz - 0.2, x + dx + 0.2, z + dz + 0.2, y, y + 0.45, 'sofa', {cam:false});
+    }
+    boxS(-45.6, 22, -44.8, 27.4, y, y + 1.05, 'counter', {cam:false});
+  }
+  solid(half, L[1] - SL, L[1], 'slab'); solid(half, L[2] - SL, L[2], 'slab'); floorF(half, L[2] + 0.01, 'roof');
+  ring(L[2], L[2] + 0.9, 'brick');
+  sign('餐廳', 'Restaurant', RS_X, 3.3, BZ + RS_R + 0.35, 0, 3.2, 0.7, '#a0522d');
+}
+
+// --- east block (1F–3F): clubs, 健康中心 by the entrance, counselling at the south end ---
+wseg(EX, EZ, BXE, EZ, L[1], L[2] - SL, 'wall');
+// 1F: 熱音社 + 打擊樂社 open north onto the path beside the grand stair (red arrow); a club behind them opens west
+rowX(0, EZ, 12, 'n', [EX, 48, BXE], [{n:'熱音社 Rock Music Club', k:'band', doors:[44]}, {n:'打擊樂社 Percussion Club', k:'band', doors:[52]}]);
+wallLine(EX, EZ, EX, 12, 0, L[1] - SL, 'wallWin', [], {lintel:'wall'});
+wseg(EX, 12, BXE, 12, 0, L[1] - SL, 'wall');
+room(0, EX, 12, BXE, BZ, 'w', club({doors:[21]}));
+{ // music club props: drum kits, amps, timpani, marimba (good things to crouch behind)
+  const kit = (x, z) => {
+    put(cylGeo(x, z, 0, 0.55, 0.32, 14), 'seat'); col(circlePts(x, z, 0.4, 8), 0, 0.55, {cam:false});
+    for (const [dx, dz, r, h] of [[0.6, -0.4, 0.18, 0.65], [-0.6, -0.4, 0.2, 0.7], [0.9, 0.3, 0.25, 0.55]]) put(cylGeo(x + dx, z + dz, h - 0.25, h, r, 12), 'seat');
+    for (const [dx, dz] of [[-1, 0.2], [1.1, -0.6]]){ put(cylGeo(x + dx, z + dz, 0, 1.2, 0.02, 4), 'steel'); put(cylGeo(x + dx, z + dz, 1.2, 1.22, 0.35, 14), 'lamp'); }
+  };
+  kit(44, 6.5); kit(53.5, 1.5);
+  for (const [x0, z0] of [[40.5, 10.6], [46.5, 10.6], [40.5, 3]]) boxS(x0, z0, x0 + 0.9, z0 + 0.7, 0, 1.1, 'screen', {cam:false});   // amps
+  boxS(40.4, -0.5, 41.2, 2, 0, 0.85, 'sofa', {cam:false});
+  for (const [x, z] of [[51, 6], [53.5, 6.8]]){ put(cylGeo(x, z, 0, 0.9, 0.5, 16), 'stage'); col(circlePts(x, z, 0.5, 8), 0, 0.9, {cam:false}); }   // timpani
+  boxS(49.5, 10.3, 55, 11.3, 0, 0.9, 'wood', {cam:false});                                                       // marimba
+}
+room(1, EX, EZ, BXE, 12, 'w', club({doors:[5]}));
+room(1, EX, 12, BXE, BZ, 'w', club({doors:[25]}));
+wallLine(EX, 12, BXE, 12, L[1], L[2] - SL, 'wall', [[12, 1.6, 2.4]]);
+room(2, EX, EZ, BXE, 14, 'n', {n:'健康中心 Health Center', k:'health', doors:[52.5], noSign:true});
+wallLine(EX, EZ, EX, 14, L[2], L[3] - SL, 'wallWin', [[8, 1.8, 2.4]], {lintel:'wall'});   // 健康中心 side door onto the walkway
+wseg(EX, 14, BXE, 14, L[2], L[3] - SL, 'wall');
+room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'counsel', doors:[25]});
+{ // 健康中心: beds with curtains (good hiding spots)
+  const y = L[2];
+  sign('健康中心', '衛保組 Health Center', 52.5, y + 2.95, EZ - 0.16, Math.PI, 3.2, 0.75, '#c0392b');
+  for (const x of [41.5, 45, 48.5, 52]){
+    boxS(x, 11.4, x + 2.2, 13.7, y, y + 0.6, 'bed', {cam:false});
+    boxS(x - 0.25, 9.6, x - 0.2, 13.8, y, y + 2.0, 'curtain', {cam:false});
+  }
+  boxS(54.5, 9.6, 54.55, 13.8, y, y + 2.0, 'curtain', {cam:false});
+  boxS(42, 1, 44, 1.8, y, y + 0.76, 'wood', {cam:false});
+  boxS(44.5, -1.6, 46, -0.8, y, y + 1.8, 'metal', {cam:false});
+  boxS(46.5, 3, 47.3, 7, y, y + 0.45, 'sofa', {cam:false});
+}
+{ // 學生諮商中心: sofas, plants, a small talk room
+  const y = L[2];
+  wseg(49, 14, 49, 21, y, y + 2.2, 'wallB'); wseg(49, 21, 53, 21, y, y + 2.2, 'wallB');
+  boxS(44, 16, 46, 16.9, y, y + 0.85, 'sofa', {cam:false}); boxS(44, 19.5, 46, 20.4, y, y + 0.85, 'sofa', {cam:false});
+  boxS(51, 24, 54, 25, y, y + 0.76, 'wood', {cam:false});
+  for (const [x, z] of [[40.6, 15], [55.3, 22], [55.3, 27.3]]){ put(cylGeo(x, z, y, y + 0.5, 0.3, 10), 'box'); const p = new THREE.IcosahedronGeometry(0.55, 0); p.translate(x, y + 1.0, z); put(p, 'plant'); col(circlePts(x, z, 0.3, 6), y, y + 0.5, {cam:false}); }
+}
+
+// --- 麗文校園書局 (3F + 2F, inner stair) ---
+{
+  sign('麗文校園書局', 'Liwen Campus Bookstore', 21, L[2] + 3.25, NZ + 0.2, 0, 7, 0.65, '#3ea04a');
+  sign('麗文書局', 'Liwen', NX1 + 0.16, L[2] + 3.15, -22, Math.PI/2, 3, 0.65, '#3ea04a');
+  sign('麗文書局', '2F', 26, L[1] + 3.25, NZ + 0.2, 0, 3.2, 0.62, '#3ea04a');
+  boxS(NX1 + 0.15, -19.5, NX1 + 0.8, -18.8, L[2], L[2] + 3.4, 'lib', {cam:false});   // green pillar sign in the entrance hall
+  for (const z of [-20.5, -23]) boxS(14, z - 0.25, 23, z + 0.25, L[2], L[2] + 1.8, 'dark', {cam:false});
+  for (const z of [-20.5, -23]) boxS(17, z - 0.25, 28, z + 0.25, L[1], L[1] + 1.8, 'dark', {cam:false});
+  boxS(13, -17.4, 16.5, -16.6, L[2], L[2] + 1.0, 'counter', {cam:false});
+  boxS(27.5, -27.5, 29.5, -25.5, L[2], L[2] + 0.9, 'wood', {cam:false});
+  // stair 2F (x = 14) → 3F (x = 22.2) along the back wall
+  const top = x => L[1] + Math.max(0, Math.min(1, (x - 14) / 8.2)) * H;
+  for (let i = 0; i < 24; i++){ const xa = 14 + 8.2*i/24, xb = 14 + 8.2*(i+1)/24; put(prismGeo(rect(xa, -27.6, xb, -25.2), L[1], top((xa + xb)/2)), 'wood'); }
+  ramp(rect(14, -27.6, 22.2, -25.2), L[1], x => top(x));
+  ramp(rect(14, -25.27, 22.2, -25.13), L[1], x => top(x) + 1.6, {cam:false});
+  bar([14, L[1] + 1, -25.2], [22.2, L[2] + 1, -25.2], 0.06, 'rail');
+  railX(13, 22.2, -24.9, L[2]); railZ(13, -27.7, -24.9, L[2]);
+  mapAdd(1, rect(14, -27.6, 22.2, -25.2), 'stair'); mapAdd(2, rect(14, -27.6, 22.2, -25.2), 'stair');
+}
+// --- 全家 FamilyMart ---
+{
+  const y = L[2];
+  sign('FamilyMart 全家', '', 1.5, y + 3.25, NZ + 0.2, 0, 6, 0.65, '#2f9e5a');
+  boxS(-8.6, -BZ + 0.2, 11.6, -BZ + 1.0, y, y + 2.1, 'fridge', {cam:false});
+  for (const z of [-24, -21]) for (const [a, b] of [[-7, -1.5], [3.5, 10]]) boxS(a, z - 0.4, b, z + 0.4, y, y + 1.5, 'metal', {cam:false});
+  boxS(-8.5, -17.4, -5.5, -16.6, y, y + 1.0, 'counter', {cam:false});
+}
+// --- 側門 side entrance hall (3F): theatre doors on the west wall, exit door on the north wall ---
+sign('活動中心 側門', 'Side Exit', SIDE_X, L[2] + 3.0, -BZ + 0.16, 0, 3, 0.6, '#2f4f63');
+
+// --- 演藝廳 Theatre (1F–4F tall; enter at 3F from the side entrance hall, raked seats down to a 1F stage, back stage behind) ---
+{
+  const top = L[4] - SL, Z0 = TN, AISLES = [[-34, -32], [-24, -22]], DZ = (AISLES[1][0] + AISLES[1][1])/2, XB = WX - 3, SY = 1.0;
+  wseg(WX, -BZ, WX, TZ1, 0, L[2], 'wallB');
+  wallLine(WX, -BZ, WX, TZ1, L[2], top, 'wallB', [[DZ + BZ, 2.2, 2.6]]);
+  wseg(BXW, TZ1, WX, TZ1, 0, top, 'wallB');
+  floorF(rect(BXW, Z0, WX, TZ1), 0.02, 'carpet');
+  boxS(XB, Z0 + 0.15, WX - 0.13, TZ1 - 0.13, 0, L[2], 'carpet');       // back cross-aisle at 3F level
+  const NR = 22, ROW = (XB - SX - 1.5) / NR, RISE = L[2] / NR;
+  const blocks = [[Z0 + 0.6, AISLES[0][0]], [AISLES[0][1], AISLES[1][0]], [AISLES[1][1], TZ1 - 0.6]];
+  for (let k = 1; k <= NR; k++){
+    const xb = XB - ROW*(k - 1), xa = xb - ROW, t = L[2] - RISE*k;
+    if (t > 0.05) boxS(xa, Z0 + 0.15, xb, TZ1 - 0.13, 0, t, 'carpet');
+    for (const [z0, z1] of blocks){
+      boxS(xa + 0.1, z0, xa + 0.5, z1, t, t + 0.45, 'seat', {cam:false});
+      boxS(xa + 0.1, z0, xa + 0.18, z1, t + 0.45, t + 0.9, 'seat', {noCol:true});
+    }
+  }
+  // stage (BSX..SX, 1 m high) with a proscenium wall at SX, steps up from the audience at both ends
+  const S0 = Z0 + 3, S1 = TZ1 - 3;
+  boxS(BSX, Z0 + 0.15, SX, TZ1 - 0.15, 0, SY, 'stage');
+  for (const z of [S0 + 0.4, S1 - 2.2]) boxS(SX, z, SX + 1.2, z + 1.8, 0, 0.5, 'stage');
+  put(prismGeo(rect(SX - 0.2, Z0 + 0.15, SX + 0.2, S0), SY, top), 'wallB'); put(prismGeo(rect(SX - 0.2, S1, SX + 0.2, TZ1 - 0.15), SY, top), 'wallB');
+  col(rect(SX - 0.2, Z0 + 0.15, SX + 0.2, S0), SY, top); col(rect(SX - 0.2, S1, SX + 0.2, TZ1 - 0.15), SY, top);
+  put(prismGeo(rect(SX - 0.2, S0, SX + 0.2, S1), 10, top), 'wallB');
+  put(prismGeo(rect(SX - 0.6, S0, SX - 0.5, S0 + 3), SY, 9.5), 'curtainR'); put(prismGeo(rect(SX - 0.6, S1 - 3, SX - 0.5, S1), SY, 9.5), 'curtainR');
+  // back stage: behind a wall at BSX (wing doors at both ends), same floor level as the stage, ramp down to the outside door
+  wallLine(BSX, Z0, BSX, TZ1, SY, top, 'wallB', [[3, 2.4, 3], [TZ1 - Z0 - 3, 2.4, 3]]);
+  put(prismGeo(rect(BSX + 0.15, Z0 + 5, BSX + 0.25, TZ1 - 5), SY, 9), 'curtainR');
+  boxS(BXW + 3.5, Z0 + 0.15, BSX, TZ1 - 0.15, 0, SY, 'wood');
+  boxS(BXW, Z0 + 0.15, BXW + 3.5, BS_DOOR - 1.2, 0, SY, 'wood'); boxS(BXW, BS_DOOR + 1.2, BXW + 3.5, TZ1 - 0.15, 0, SY, 'wood');
+  { const top2 = x => SY * Math.max(0, Math.min(1, (x - BXW) / 3.5)), r = rect(BXW, BS_DOOR - 1.2, BXW + 3.5, BS_DOOR + 1.2);
+    ramp(r, 0, x => top2(x));
+    for (let i = 0; i < 6; i++){ const xa = BXW + 3.5*i/6, xb = BXW + 3.5*(i+1)/6; put(prismGeo(rect(xa, BS_DOOR - 1.2, xb, BS_DOOR + 1.2), 0, top2((xa + xb)/2)), 'wood'); } }
+  // back-stage clutter: costume racks, flight cases, scenery flats (hiding spots)
+  const y = SY;
+  for (const [x0, z0, x1, z1, h, k] of [[-75.5, -38.8, -71, -38, 1.8, 'metal'], [-69.5, -29, -68, -27, 1.2, 'box'], [-74, -24, -72.4, -22.4, 1.0, 'box'], [-73.2, -24.6, -71.6, -23, 0.9, 'box'],
+                                        [-75.6, -20, -75.1, -16, 2.6, 'wood'], [-73, -16.5, -71, -15.7, 1.7, 'metal'], [-75.5, -30.5, -74.8, -27.5, 1.9, 'dark']])
+    boxS(x0, z0, x1, z1, y, y + h, k, {cam:false});
+  lamps(BXW, Z0, BSX, TZ1, L[1] - SL + 4);
+  lamps(-54, Z0, XB, TZ1, top);
+  sign('演藝廳', 'Theatre', WX + 0.16, L[2] + 3.0, DZ, Math.PI/2, 3.6, 0.8, '#7a1f2b');
+  zone('演藝廳 Theatre', 0, SX, Z0, WX, TZ1, null, -0.5, L[4]);
+  zone('舞台 Stage', 0, BSX, Z0, SX, TZ1, null, -0.5, L[4]);
+  zone('後台 Back Stage', 0, BXW, Z0, BSX, TZ1, null, -0.5, L[4]);
+  for (const f of [0, 1, 2, 3]) mapAdd(f, rect(BXW, Z0, WX, TZ1), 'theatre');
+}
+
+// --- atrium furniture: stone benches, planters, club booth tables on the 2F north gallery ---
+for (const [x, z] of [[4, -4], [12, 10], [-8, 12], [-10, -6]]) boxS(x - 1.6, z - 0.3, x + 1.6, z + 0.3, 0, 0.45, 'concrete');
+for (const [x, z] of [[-2, 14], [22, 12], [-12, 4]]){ boxS(x - 1, z - 1, x + 1, z + 1, 0, 0.6, 'concrete'); const p = new THREE.IcosahedronGeometry(1.1, 0); p.scale(1, 0.8, 1); p.translate(x, 1.3, z); put(p, 'plant'); }
+for (const x of [-20, -11, -2, 10, 19]) boxS(x, -15.6, x + 1.8, -15, L[1], L[1] + 0.75, 'wood', {cam:false});
+
+// ---------- outdoor stairs & bridges ----------
+// street level (3F) down to the ground along the north face and the south face of the east block
+for (const [z0, z1, xa, xb] of [[-BZ - 0.15, -BZ - 5, 9, P1[0]], [BZ + 0.15, BZ + 5, 32, BXE]]){
+  const n = 40, top = x => Math.max(0, Math.min(1, (x - xa) / (xb - xa))) * L[2];
+  for (let i = 0; i < n; i++){ const x0 = xa + (xb - xa)*i/n, x1 = xa + (xb - xa)*(i+1)/n; put(prismGeo(rect(x0, z0, x1, z1), 0, top((x0 + x1)/2)), 'pave'); }
+  ramp(rect(xa, z0, xb, z1), 0, x => top(x));
+  bar([xa, 1, z1], [xb, L[2] + 1, z1], 0.07, 'rail');
+  for (let t = 0; t <= 1.001; t += 0.1){ const x = xa + (xb - xa)*t; bar([x, top(x), z1], [x, top(x) + 1, z1], 0.05, 'rail'); }
+  for (const f of [0, 1, 2, 3]) mapAdd(f, rect(xa, z0, xb, z1), 'stair');
+}
+// 3F side door → landing → stair down to the north lawn
+{
+  const xa = SIDE_X - 3, xb = SIDE_X + 3;
+  solid(rect(xa, -32, xb, -BZ - 0.13), 0, L[2], 'concrete'); floorF(rect(xa, -32, xb, -BZ - 0.13), L[2] + 0.01, 'pave');
+  const top = z => Math.max(0, Math.min(1, (z + 52) / 20)) * L[2];
+  for (let i = 0; i < 40; i++){ const za = -52 + 20*i/40, zb = -52 + 20*(i+1)/40; put(prismGeo(rect(SIDE_X - 2, za, SIDE_X + 2, zb), 0, top((za + zb)/2)), 'pave'); }
+  ramp(rect(SIDE_X - 2, -52, SIDE_X + 2, -32), 0, (x, z) => top(z));
+  for (const x of [SIDE_X - 2, SIDE_X + 2]) bar([x, 1, -52], [x, L[2] + 1, -32], 0.07, 'rail');
+  railX(xa, xb, -32, L[2], [[SIDE_X - 2, SIDE_X + 2]]); railZ(xa, -32, -BZ, L[2]); railZ(xb, -32, -BZ, L[2]);
+  sign('側門', 'Side Exit', SIDE_X, L[2] + 2.95, -BZ - 0.16, Math.PI, 2.4, 0.6, '#2f4f63');
+  for (const f of [0, 1, 2, 3]) mapAdd(f, rect(xa, -52, xb, -BZ), 'stair');
+  zone('側門 Side Exit', 2, xa, -32, xb, -BZ + 0.5, null);
+}
+
+// ---------- trees & bushes outside ----------
+{
+  const spots = [];
+  const blocked = (x, z) =>
+    (x > -82 && x < 60 && z > -36 && z < 36) || (x > -82 && x < -22 && z > -46 && z < -30) || (x > -46 && x < -28 && z > 30 && z < 40) || (x > -32 && x < 44 && z > 26 && z < 47) ||
+    (x > -25 && x < -13 && z > -56 && z < -26) || (x > -100 && x < -74 && z > -6 && z < 11) || (x > -90 && x < -74 && z > -37 && z < -29) || (x > 4 && x < 36 && z > -36 && z < -26) || (x > 28 && x < 66 && z > -42 && z < -4) ||
+    inLake(x, z, 4) || (x > ROAD[0] - 3 && x < ROAD[1] + 3) || Math.hypot(x - ENT[0], z - ENT[1]) < 16 || (x > 54 && x < 60);
+  for (let i = 0, n = 0; n < 160 && i < 8000; i++){
+    const x = -125 + rand()*250, z = -75 + rand()*180;
+    if (!blocked(x, z)) { spots.push([x, insidePoly(x, z, PLAT) ? L[2] : 0, z]); n++; }
+  }
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(.35, .5, 3, 6), mat(0x6b4a2f), spots.length);
+  const leaf = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.6, 0), mat(0x3f7d34, {flatShading:true}), spots.length);
+  trunk.castShadow = leaf.castShadow = true;
+  const M = new THREE.Matrix4(), QQ = new THREE.Quaternion(), S = new THREE.Vector3(), P = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  spots.forEach(([x, y, z], i) => {
+    const s = 0.8 + rand()*0.6;
+    trunk.setMatrixAt(i, M.compose(P.set(x, y + 1.5*s, z), QQ.identity(), S.set(s, s, s)));
+    leaf.setMatrixAt(i, M.compose(P.set(x, y + 4.6*s, z), QQ.setFromAxisAngle(UP, rand()*6), S.set(s, s*1.15, s)));
+    col(circlePts(x, z, 0.5*s, 6), y, y + 4, {cam:false});
+  });
+  scene.add(trunk, leaf);
+  const bushes = [];
+  for (let x = -26; x < 10; x += 5 + rand()*5) if (rand() < 0.6 && !(x > -26 && x < -12)) bushes.push([x, 0, -31]);
+  for (let x = -76; x < -28; x += 5 + rand()*5) if (rand() < 0.6) bushes.push([x, 0, -42.5]);
+  for (let x = -78; x < -28; x += 5 + rand()*5) if (rand() < 0.6 && Math.abs(x - RS_X) > RS_R + 1.5) bushes.push([x, 0, 31]);
+  for (let z = -38; z < 26; z += 5 + rand()*4) if ((z < -6 || z > 10) && Math.abs(z - BS_DOOR) > 3 && rand() < 0.7) bushes.push([-79, 0, z]);
+  for (let x = -76; x < 30; x += 6 + rand()*6) if (Math.abs(x - RS_X) > 2.5) bushes.push([x, 0, 43 - rand()*2]);                 // lake shore
+  for (let i = 0; i < 26; i++){ const x = 60 + rand()*20, z = -70 + rand()*108; if (Math.hypot(x - ENT[0], z - ENT[1]) > 16) bushes.push([x, L[2], z]); }
+  const bush = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1.3, 0), mat(0x2f6b2c, {flatShading:true}), bushes.length);
+  bush.castShadow = true;
+  bushes.forEach(([x, y, z], i) => { const s = 0.9 + rand()*0.6; bush.setMatrixAt(i, M.compose(P.set(x, y + 0.6*s, z), QQ.identity(), S.set(s, s*0.7, s))); });
+  scene.add(bush);   // bushes have no collider: hiding spots
+}
+
+const TRIS = flush();
+
+// =====================================================================================
+//  PLAYER
+// =====================================================================================
+function makeCharacter(color){
+  const g = new THREE.Group();
+  const body = mat(color), skin = mat(0xf1c9a5), pants = mat(0x2d3a4a);
+  const add = (geo, m, x, y, z, parent = g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  add(new THREE.BoxGeometry(.9, 1.0, .5), body, 0, 1.55, 0);
+  add(new THREE.BoxGeometry(.62, .62, .62), skin, 0, 2.4, 0);
+  add(new THREE.BoxGeometry(.66, .2, .66), mat(0x2a1f18), 0, 2.72, 0);
+  add(new THREE.BoxGeometry(.12, .12, .05), mat(0x111111), -.14, 2.45, .31);
+  add(new THREE.BoxGeometry(.12, .12, .05), mat(0x111111), .14, 2.45, .31);
+  const limb = (x, y, m, w, h) => { const pivot = new THREE.Group(); pivot.position.set(x, y, 0); g.add(pivot); add(new THREE.BoxGeometry(w, h, w), m, 0, -h/2, 0, pivot); return pivot; };
+  g.userData.legL = limb(-.24, 1.05, pants, .36, 1.05);
+  g.userData.legR = limb( .24, 1.05, pants, .36, 1.05);
+  g.userData.armL = limb(-.6, 2.0, body, .26, .95);
+  g.userData.armR = limb( .6, 2.0, body, .26, .95);
+  return g;
+}
+const SPAWN = [CM[0] + CN[0]*7, L[2], CM[1] + CN[1]*7], SPAWN_YAW = Math.atan2(CN[0], CN[1]);   // outside the main doors, facing in
+const player = {
+  obj: makeCharacter(new THREE.Color().setHSL(rand(), .65, .5)),
+  pos: new THREE.Vector3(...SPAWN), vy: 0, onGround: true, heading: SPAWN_YAW - Math.PI, stamina: 1, phase: 0, speed: 0, prep: 0, land: 0, air: 0, spaceWas: false, stepVis: 0,
+};
+const SC = 1.75 / 2.85;               // model is 2.85 units tall -> 1.75 m person
+player.obj.scale.setScalar(SC);
+scene.add(player.obj);
+const WALK = 4.5, SPRINT = 7.5, JUMP = 6.2, G = 21;     // m/s jog, m/s sprint, ~0.9 m jump
+const PREP = 0.09, LAND = 0.16;
+const BOUNDS = [-125, -75, 125, 110];
+
+// ---------- input ----------
+const keys = {};
+addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); });
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+let yaw = SPAWN_YAW, pitch = 0.28, dist = 6;            // camera behind the player, looking into the building
+const SENS_X = 0.0035, SENS_Y = 0.0028, PITCH_MIN = -0.35, PITCH_MAX = 1.25;
+let mouseX = -1, locked = false, running = false, autoInput = null;
+const lockHint = document.getElementById('lock');
+function lockMouse(){ try { const p = canvas.requestPointerLock?.({unadjustedMovement:true}); p?.catch?.(() => { try { canvas.requestPointerLock(); } catch {} }); } catch {} }
+canvas.addEventListener('click', () => { if (running && !locked) lockMouse(); });
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; lockHint.textContent = locked ? 'Esc to release mouse' : 'Click to lock mouse'; });
+addEventListener('mousemove', e => {
+  if (!running) return;
+  mouseX = e.clientX;
+  const dx = Math.max(-80, Math.min(80, e.movementX)), dy = Math.max(-80, Math.min(80, e.movementY));
+  yaw -= dx * SENS_X;
+  pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch + dy * SENS_Y));
+});
+document.addEventListener('mouseleave', () => mouseX = -1);
+canvas.addEventListener('wheel', e => { dist = Math.min(16, Math.max(2, dist + e.deltaY * 0.01)); e.preventDefault(); }, {passive:false});
+const joy = document.getElementById('joy'), knob = joy.firstElementChild;
+const touch = {move:null, look:null, mx:0, mz:0};
+// phone: jump button + touch help instead of the keyboard help
+if (MOBILE){
+  const jb = document.getElementById('jumpBtn'), mh = document.getElementById('mhelp');
+  jb.style.display = 'block'; document.getElementById('help').style.display = 'none'; mh.style.display = 'block';
+  setTimeout(() => { mh.style.display = 'none'; }, 12000);
+  const press = on => e => { e.preventDefault(); keys.Space = on; jb.classList.toggle('on', on); };
+  jb.addEventListener('touchstart', press(true), {passive:false}); jb.addEventListener('touchend', press(false), {passive:false}); jb.addEventListener('touchcancel', press(false), {passive:false});
+  jb.addEventListener('pointerdown', press(true)); jb.addEventListener('pointerup', press(false));
+}
+canvas.addEventListener('touchstart', e => {
+  for (const t of e.changedTouches){
+    if (t.clientX < innerWidth/2 && !touch.move){ touch.move = {id:t.identifier, x:t.clientX, y:t.clientY}; Object.assign(joy.style, {display:'block', left:(t.clientX-55)+'px', top:(t.clientY-55)+'px'}); }
+    else if (!touch.look) touch.look = {id:t.identifier, x:t.clientX, y:t.clientY};
+  }
+}, {passive:true});
+canvas.addEventListener('touchmove', e => {
+  for (const t of e.changedTouches){
+    if (touch.move?.id === t.identifier){
+      let dx = t.clientX - touch.move.x, dy = t.clientY - touch.move.y;
+      const l = Math.hypot(dx, dy), m = Math.min(l, 45); if (l > 0){ dx = dx/l*m; dy = dy/l*m; }
+      knob.style.transform = `translate(${dx}px,${dy}px)`; touch.mx = dx/45; touch.mz = dy/45;
+    } else if (touch.look?.id === t.identifier){
+      yaw -= (t.clientX - touch.look.x) * 0.006;
+      pitch = Math.min(PITCH_MAX, Math.max(PITCH_MIN, pitch + (t.clientY - touch.look.y) * 0.004));
+      touch.look.x = t.clientX; touch.look.y = t.clientY;
+    }
+  }
+}, {passive:true});
+canvas.addEventListener('touchend', e => {
+  for (const t of e.changedTouches){
+    if (touch.move?.id === t.identifier){ touch.move = null; touch.mx = touch.mz = 0; joy.style.display = 'none'; knob.style.transform = ''; }
+    if (touch.look?.id === t.identifier) touch.look = null;
+  }
+}, {passive:true});
+
+// ---------- movement + collision ----------
+function move(dt){
+  const p = player.pos;
+  let mx, mz, il;
+  if (autoInput){ mx = autoInput.x; mz = autoInput.z; il = 1; }
+  else {
+    let ix = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0) + touch.mx;
+    let iz = (keys.KeyS||keys.ArrowDown?1:0) - (keys.KeyW||keys.ArrowUp?1:0) + touch.mz;
+    il = Math.hypot(ix, iz); if (il > 1){ ix /= il; iz /= il; }
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    mx = rx*ix - fx*iz; mz = rz*ix - fz*iz;
+  }
+  const moving = il > 0.1;
+  const wantSprint = !autoInput && (keys.ShiftLeft || keys.ShiftRight || Math.hypot(touch.mx, touch.mz) > 0.95) && moving;
+  const sprint = wantSprint && player.stamina > 0.02;
+  player.stamina = Math.max(0, Math.min(1, player.stamina + (sprint ? -0.28 : 0.18) * dt));
+  const target = moving ? (sprint ? SPRINT : WALK) * Math.min(1, il) : 0;
+  player.speed += (target - player.speed) * Math.min(1, dt*10);
+  if (moving){ const want = Math.atan2(mx, mz); let d = want - player.heading; d = Math.atan2(Math.sin(d), Math.cos(d)); player.heading += d * Math.min(1, dt*12); }
+
+  // horizontal: move, push out of solids, slide along special blockers (spiral stairs, lake)
+  const ml = Math.hypot(mx, mz) || 1, px0 = p.x, pz0 = p.z, feet0 = p.y;
+  if (moving){ p.x += mx/ml * player.speed * dt; p.z += mz/ml * player.speed * dt; }
+  pushOut(p, feet0);
+  if (specialBlocked(p.x, p.z, feet0)){
+    if (!specialBlocked(px0, p.z, feet0)) p.x = px0;
+    else if (!specialBlocked(p.x, pz0, feet0)) p.z = pz0;
+    else { p.x = px0; p.z = pz0; }
+  }
+  p.x = Math.max(BOUNDS[0], Math.min(BOUNDS[2], p.x)); p.z = Math.max(BOUNDS[1], Math.min(BOUNDS[3], p.z));
+
+  // vertical: jump (crouch → launch), ground snapping on stairs, gravity, ceilings
+  const spaceDown = !!keys.Space && !autoInput;
+  if (spaceDown && !player.spaceWas && player.onGround && player.prep <= 0 && player.land < 0.08) player.prep = PREP;
+  player.spaceWas = spaceDown;
+  if (player.prep > 0){ player.prep -= dt; if (player.prep <= 0 && player.onGround){ player.vy = JUMP; player.onGround = false; } }
+  if (player.onGround){
+    const g = groundAt(p.x, p.z, feet0);
+    if (g >= feet0 - SNAP){ if (g > feet0) player.stepVis += g - feet0; p.y = g; player.vy = 0; }
+    else player.onGround = false;
+  }
+  if (!player.onGround){
+    player.vy -= G*dt;
+    let ny = feet0 + player.vy*dt;
+    if (player.vy > 0){ const cl = ceilingAt(p.x, p.z, feet0); if (ny + HEAD > cl){ ny = Math.max(feet0, cl - HEAD); player.vy = 0; } }
+    const g = groundAt(p.x, p.z, feet0);
+    if (ny <= g){ if (player.vy < -3) player.land = LAND * Math.min(1.4, -player.vy / JUMP); ny = g; player.vy = 0; player.onGround = true; }
+    p.y = ny;
+  }
+  if (player.land > 0) player.land -= dt;
+  player.stepVis *= Math.exp(-dt * 14);
+  return moving;
+}
+
+// ---------- HUD: floor, place name, per-floor minimap ----------
+const placeEl = document.getElementById('place'), flrEl = document.getElementById('flr');
+const floorOf = y => y < 2 ? 0 : y < 6 ? 1 : y < 10 ? 2 : y < 14 ? 3 : 4;
+function placeName(x, y, z){
+  const fr = fanR(x, z), fa = fanA(x, z), uu = uOf(x, z), vv = vOf(x, z);
+  if (y < 7.5 && Math.abs(uu) < SW && vv > SV0 && vv < SV1 && y > 3.5) return '大階梯 Grand Stairs';
+  if (y > 3 && y < 5 && fr < RL && fa > FA0 && fa < FA2) return '二樓平台 2F Landing';
+  if (y < 3.5 && fr >= RL && fr < RF && fa > FAD && fa < FA1) return '大階梯 Grand Stairs';
+  if (y > 7 && y < 9 && vv > SV1 && vv < FV + 0.3 && x > NWALK[1][0]) return '正門空橋 Entrance Bridge';
+  for (const b of BRIDGES){
+    const dx = b.B[0] - b.A[0], dz = b.B[1] - b.A[1], t = Math.max(0, Math.min(1, ((x - b.A[0])*dx + (z - b.A[1])*dz) / (dx*dx + dz*dz)));
+    if (Math.abs(y - b.y) < 1 && Math.hypot(x - b.A[0] - dx*t, z - b.A[1] - dz*t) < 1.7 && t > 0.03 && t < 0.97) return '空橋 Bridge';
+  }
+  for (let i = zones.length - 1; i >= 0; i--){ const q = zones[i]; if (y >= q.lo && y <= q.hi && x >= q.x0 && x <= q.x1 && z >= q.z0 && z <= q.z1) return q.n; }
+  if (x > BXW && x < BXE && Math.abs(z) < BZ){
+    if (x > WGX && x < EX && z > NGZ && z < SGZ) return y < 1 ? '中庭廣場 Atrium Plaza' : '中庭 Atrium';
+    if (y < 1) return z > SGZ ? '中庭廣場 Atrium Plaza' : '騎樓 Arcade';
+    if (y > 11) return '四樓走廊 4F Corridor';
+    return z > SGZ ? '南側走廊 South Walkway (lake view)' : '迴廊 Gallery';
+  }
+  if (y < 2 && inLake(x, z, 6)) return '寧靜湖 Lake';
+  if (x > ROAD[0] && x < ROAD[1] && y > 6) return '景觀大橋 中正大道';
+  return y > 6 && insidePoly(x, z, PLAT) ? '正門廣場 Front Plaza' : '戶外 Outside';
+}
+const mini = document.getElementById('mini'), mg = mini.getContext('2d');
+const MAP = {x0:-90, z0:-50, x1:130, z1:80};
+const MK = Math.min(mini.width / (MAP.x1 - MAP.x0), mini.height / (MAP.z1 - MAP.z0));
+const mapBase = [0, 1, 2, 3].map(f => {
+  const c = document.createElement('canvas'); c.width = mini.width; c.height = mini.height;
+  const g = c.getContext('2d');
+  g.fillStyle = '#6aa84f'; g.fillRect(0, 0, c.width, c.height);
+  g.save(); g.scale(MK, MK); g.translate(-MAP.x0, -MAP.z0);
+  const path = (pts, holes) => { g.beginPath(); for (const ring of [pts, ...(holes || [])]){ ring.forEach(([x, z], i) => i ? g.lineTo(x, z) : g.moveTo(x, z)); g.closePath(); } };
+  g.fillStyle = '#3d8fc6'; g.beginPath(); g.ellipse(LAKE.x, LAKE.z, LAKE.rx, LAKE.rz, 0, 0, TAU); g.fill();
+  g.fillStyle = '#4a5058'; g.fillRect(BXW, -BZ, BXE - BXW, 2*BZ);
+  for (const it of mapLayers[f]){ g.fillStyle = MAPC[it.k] || '#e9e3d7'; path(it.pts, it.holes); g.fill('evenodd'); }
+  g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 0.4;
+  for (const q of zones) if (q.lo <= L[f] + 0.5 && q.hi >= L[f] + 1 && (q.x1 - q.x0) * (q.z1 - q.z0) < 900) g.strokeRect(q.x0, q.z0, q.x1 - q.x0, q.z1 - q.z0);
+  g.restore();
+  g.fillStyle = '#fff'; g.font = '800 34px "Noto Sans TC", sans-serif'; g.textBaseline = 'top';
+  g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = 4; g.fillText((f + 1) + 'F', 10, 8);
+  return c;
+});
+function drawMini(f){
+  mg.drawImage(mapBase[f], 0, 0);
+  const x = Math.max(MAP.x0, Math.min(MAP.x1, player.pos.x)), z = Math.max(MAP.z0, Math.min(MAP.z1, player.pos.z));
+  mg.save(); mg.translate((x - MAP.x0)*MK, (z - MAP.z0)*MK); mg.rotate(-player.heading);
+  mg.fillStyle = '#ff4d4d'; mg.strokeStyle = '#fff'; mg.lineWidth = 3;
+  mg.beginPath(); mg.moveTo(0, 13); mg.lineTo(-8, -8); mg.lineTo(8, -8); mg.closePath(); mg.fill(); mg.stroke();
+  mg.restore();
+}
+
+// ---------- frame ----------
+const stamBar = document.querySelector('#stam i'), info = document.getElementById('info');
+const camTarget = new THREE.Vector3(), camDir = new THREE.Vector3();
+const clock = new THREE.Clock();
+function step(dt){
+  if (!locked && mouseX >= 0 && dt > 0 && running){
+    const e = innerWidth * 0.06;
+    if (mouseX < e) yaw += 2.2 * dt * (1 - mouseX/e);
+    else if (mouseX > innerWidth - e) yaw -= 2.2 * dt * (1 - (innerWidth - mouseX)/e);
+  }
+  if (dt > 0) move(dt);
+  const p = player.pos, o = player.obj, u = o.userData;
+  const visY = p.y - player.stepVis;
+  o.position.set(p.x, visY, p.z); o.rotation.y = player.heading;
+  const air = !player.onGround;
+  player.air += ((air ? 1 : 0) - player.air) * Math.min(1, dt*14);
+  player.phase += dt * player.speed * 2.6 * (air ? 0 : 1);
+  const amp = Math.min(1, player.speed / SPRINT) * 0.9, s = Math.sin(player.phase) * amp;
+  const rising = player.vy > 0;
+  const armAir = rising ? -2.5 : -1.2, armSide = rising ? 0.15 : 0.9, legFront = rising ? -1.1 : -0.5, legBack = rising ? 0.5 : 0.2;
+  const k = player.air, mix = (g, a) => g + (a - g) * k;
+  u.legL.rotation.x = mix(s, legFront); u.legR.rotation.x = mix(-s, legBack);
+  u.armL.rotation.x = mix(-s*0.9, armAir); u.armR.rotation.x = mix(s*0.9, armAir);
+  u.armL.rotation.z += ((-armSide*k) - u.armL.rotation.z) * Math.min(1, dt*12);
+  u.armR.rotation.z += (( armSide*k) - u.armR.rotation.z) * Math.min(1, dt*12);
+  let sq = 1;
+  if (player.prep > 0) sq = 1 - 0.18 * (1 - player.prep / PREP);
+  else if (player.land > 0) sq = 1 - 0.2 * Math.sin(Math.PI * (1 - Math.max(0, player.land) / LAND));
+  else if (air) sq = 1 + Math.min(0.08, Math.max(-0.04, player.vy * 0.012));
+  o.scale.set(SC * (1 + (1 - sq) * 0.6), SC * sq, SC * (1 + (1 - sq) * 0.6));
+  if (!air) o.position.y += Math.abs(Math.cos(player.phase)) * amp * 0.06;
+
+  // third-person camera: march back from the head and stop before any solid (walls, slabs, stairs)
+  camTarget.set(p.x, visY + 1.5, p.z);
+  camDir.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch)).normalize();
+  let d = dist;
+  for (let t = 0.3; t < dist; t += 0.12){
+    if (solidAt(camTarget.x + camDir.x*t, camTarget.y + camDir.y*t, camTarget.z + camDir.z*t)){ d = Math.max(0.45, t - 0.25); break; }
+  }
+  camera.position.copy(camTarget).addScaledVector(camDir, d);
+  camera.lookAt(camTarget);
+  stamBar.style.width = (player.stamina*100) + '%';
+}
+function resize(){
+  const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+addEventListener('orientationchange', () => { for (const t of [100, 300, 700]) setTimeout(resize, t); });   // phones report the new size late
+window.visualViewport?.addEventListener('resize', resize);
+
+let frame = 0, fpsT = 0, fpsN = 0, lastFloor = -1, lastPlace = '';
+function loop(){
+  const dt = Math.min(0.05, clock.getDelta());
+  if (running) step(dt); else { yaw += dt*0.12; step(0); }
+  if ((frame++ & 7) === 0){
+    const f = floorOf(player.pos.y), name = placeName(player.pos.x, player.pos.y, player.pos.z);
+    if (f !== lastFloor){ flrEl.textContent = f === 4 ? 'RF' : (f + 1) + 'F'; lastFloor = f; }
+    if (name !== lastPlace){ placeEl.textContent = name; lastPlace = name; }
+  }
+  drawMini(lastFloor < 0 ? 2 : Math.min(3, lastFloor));
+  renderer.render(scene, camera);
+  fpsN++; fpsT += dt;
+  if (fpsT > 1){ info.textContent = `${backend} · ${Math.round(fpsN / fpsT)} fps · ${Math.round(TRIS/1000)}k tris`; fpsT = 0; fpsN = 0; }
+}
+renderer.setAnimationLoop(loop);
+
+function start(){
+  document.getElementById('start')?.remove();
+  running = true; clock.getDelta();
+}
+document.getElementById('go').addEventListener('click', () => {
+  if (MOBILE) document.documentElement.requestFullscreen?.({navigationUI:'hide'})?.catch?.(() => {});
+  start(); yaw = SPAWN_YAW; lockMouse(); canvas.focus();
+});
+
+// ---------- debug: ?shot=x,y,z,yaw,pitch,dist  (place player + camera for screenshots) ----------
+if (Q.has('shot')){
+  const [x, y, z, yw, pt, ds] = Q.get('shot').split(',').map(Number);
+  start(); player.pos.set(x, y, z); yaw = yw ?? yaw; pitch = pt ?? pitch; dist = ds || dist;
+  player.heading = yaw + Math.PI;
+  if (Q.has('nohud')) document.querySelectorAll('.hud').forEach(e => e.style.display = 'none');
+}
+
+// ---------- self-test: ?test walks scripted routes through the building and reports where each ends ----------
+function helixPath(cx, cz, r, exit, turns){ const p = []; for (let s = 0.3; s <= turns*TAU + 1e-6; s += 0.3) p.push([cx + r*Math.cos(exit + s), cz + r*Math.sin(exit + s)]); return p; }
+function runTests(){
+  const fa = (r, a) => fanAt(r, a), [TX, TZ] = TOWER_C, [SQX, SQZ] = STC;
+  // switchback routes: up lane 1 to the turn, back down lane 2 to the floor landing, repeat
+  const oval = n => { const p = []; for (let k = 0; k < n; k++) p.push([TX - 0.6, TZ - 1.6], [TX + 4.3, TZ - 1.6], [TX + 5.5, TZ], [TX + 4.3, TZ + 1.6], [TX - 0.6, TZ + 1.6]); return p; };
+  const square = n => { const p = []; for (let k = 0; k < n; k++) p.push([SQX - 1.7, SQZ - 0.8], [SQX - 1.7, SQZ + 5.9], [SQX + 1.7, SQZ + 5.9], [SQX + 1.7, SQZ - 0.8]); return p; };
+  const T = [
+    ['Entrance → hall → straight stair → 2F landing → fan → plaza', [...SPAWN], [CM, UV(0, 4), UV(0, 12), UV(0, 19), fa(9, 1.9), fa(13, 1.9), [30, 0]], 0],
+    ['2F landing → 2F passage → north gallery', [...UV(0, 19).slice(0, 1), 4, UV(0, 19)[1]], [fa(4, 3.3), [32, -14], [0, -14]], 4],
+    ['Fan east lane: 2F landing → 1F (under the 2F link)', [...UV(0, 19).slice(0, 1), 4, UV(0, 19)[1]], [fa(8, 1.35), fa(13, 1.35)], 0],
+    ['2F landing → 2F link → east-block walkway → lake-side 2F walkway', [...UV(0, 19).slice(0, 1), 4, UV(0, 19)[1]], [fa(4, 0.97), fa(10, 0.97), [48, -3.5], [38.5, -3.5], [38.5, 20], [30, 25]], 4],
+    ['Hall → NW wing → 3F walk → north gallery → FamilyMart', [...UV(-9, 4).slice(0, 1), 8, UV(-9, 4)[1]], [UV(-9, 12), [32, -27], [31.7, -14], [1, -14], [1, -22]], 8],
+    ['Hall → 3F walk → 麗文 side door', [...UV(-9, 4).slice(0, 1), 8, UV(-9, 4)[1]], [UV(-9, 12), [32, -27], [31.5, -22], [28, -22]], 8],
+    ['Hall → SE wing → bridge → 健康中心', [...UV(9, 4).slice(0, 1), 8, UV(9, 4)[1]], [UV(13, 12), [52.5, -4], [52.5, 1]], 8],
+    ['Entrance bridge → walkway outside 健康中心 → lake-side walkway', [52.5, 8, -4], [[38.5, -3.5], [38.5, 24], [20, 25]], 8],
+    ['Walkway → 健康中心 side door', [38.5, 8, 6], [[42, 6]], 8],
+    ['3F walkway along the 健康中心 wall, no hole (z -2.3)', [38.5, 8, -2.3], [[55.5, -2.3]], 8],
+    ['3F walkway along the 健康中心 wall, no hole (z -4.6)', [38.5, 8, -4.6], [[52, -4.6]], 8],
+    ['2F walkway (east block) → club door → lake-side 2F walkway', [38.5, 4, 5], [[42, 5], [38.5, 5], [38.5, 24], [20, 25]], 4],
+    ['3F atrium bridge: step off at the corners onto the galleries', [17, 8, -13.5], [[17, -12.3], [-17, 13.2], [-23.4, 18.2], [-25.5, 18.2]], 8],
+    ['3F atrium bridge: other corners', [20.6, 8, -13.5], [[20.6, -12.3], [-15, 14.8], [-23.4, 21.1], [-25.5, 21.1]], 8],
+    ['3F atrium bridge, end to end', [18.5, 8, -13], [[18.5, -12.3], [-23.2, 19.5], [-26, 19.5]], 8],
+    ['Plaza → path (red arrow) → hallway under the stairs → 小吃街', [36, 0, -3.8], [[50, -3.8], [52, -9], UV(0, 12), UV(-8, 10), [31, -26], [31, -20], [27.5, -20]], 0],
+    ['Plaza → path → 熱音社', [36, 0, -3.8], [[44, -3.8], [44, 3]], 0],
+    ['Plaza → path → 打擊樂社', [36, 0, -3.8], [[52, -3.8], [52, 3]], 0],
+    ['No 1F path on the cafeteria side of the stair', [25, 0, -14], [[38, -14]], 0, true],
+    ['Hall → 麗文 3F → inner stair → 2F', [27, 8, -19], [[24, -26.4], [13.6, -26.4]], 4],
+    ['Circle stair 1F → 4F', [TX - 3, 0, TZ - 0.8], [...oval(3), [TX - 2.5, TZ]], 12],
+    ['Circle stair 4F: wall beside the landing (no drop into lane 1)', [TX - 0.7, 12, TZ - 1.6], [[TX + 3, TZ - 1.6]], 12, true],
+    ['Indoor stair, roof: wall beside the landing', [SQX - 1.7, 16, SQZ - 1], [[SQX - 1.7, SQZ + 3]], 16, true],
+    ['Indoor stair 1F → roof → stair-house door → rooftop plaza', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(4), [SQX, SQZ - 1], [SQX, 17], [-50, 13]], 16],
+    ['Rooftop plaza: low wall blocks the south edge', [-40, 16, 20], [[-40, 35]], 16, true],
+    ['Rooftop plaza: low wall blocks the slope side', [-40, 16, 12], [[-40, 0]], 16, true],
+    ['Rooftop plaza: low wall blocks the atrium side', [-35, 16, 16], [[-20, 16]], 16, true],
+    ['Circle stair 1F → 2F only', [TX - 3, 0, TZ - 0.8], [...oval(1), [TX - 2.5, TZ]], 4],
+    ['Slope: 2F west gallery → down → 1F outside', [-25, 4, 4.75], [[-30, 4.75], [-82, 4.75]], 0],
+    ['Outside → up the slope → 2F gallery', [-82, 0, 4.75], [[-30, 4.75], [-25, 4.75]], 4],
+    ['Outside → 1F path beside the slope → atrium', [-82, 0, -0.25], [[-24.6, -0.25], [-24.6, -8], [-15, -8]], 0],
+    ['Slope balustrade blocks a jump to the path', [-40, 3, 4.75], [[-40, 0]], 3.0, true],
+    ['3F side hall → theatre → down to the front row', [-20, 8, -14], [[-20, -23], [-29.5, -23], [-56, -23]], 0],
+    ['Front row → stage → back stage → outside', [-56, 0, -23], [[-56.4, -19.3], [-60, -19.3], [-66, -18], [-70, -18], [-71, -33], [-82, -33]], 0],
+    ['Indoor stair 1F → 4F (via corridor 2)', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(3), [SQX, 17.5]], 12],
+    ['Indoor stair 1F → 3F', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(2), [SQX, 17.5]], 8],
+    ['Corridor 2 → restaurant 1F → lake shore', [-26, 0, 17.5], [[-31, 17.5], [-31, 21], [-37, 22], [-37, 40]], 0],
+    ['3F side door → outdoor stair', [SIDE_X, 8, -20], [[SIDE_X, -27], [SIDE_X, -30.5], [SIDE_X, -53]], 0],
+    ['3F bridge (north gallery → south-west corner)', [18.5, 8, -14], [[18.5, -12.5], [-25.1, 21]], 8],
+    ['Street → north outdoor stair', [34.5, 8, -36], [[34.5, -30.6], [5, -30.6]], 0],
+    ['Plaza → snack street', [0, 0, -10], [[0, -17], [0, -23]], 0],
+    ['3F south walkway → counselling', [30, 8, 25], [[42, 25]], 8],
+    ['Plaza → open south side → lake shore', [0, 0, 10], [[0, 42]], 0],
+    ['Plaza → corridor 1 (along the theatre) → 學務處', [-20, 0, -13.5], [[-60, -13.5], [-60, -9]], 0],
+    ['Wall blocks (2F gallery → room front, no door)', [6, 4, -14], [[6, -20]], 4, true],
+    ['Railing blocks (3F gallery → void)', [0, 8, -14], [[0, -8]], 8, true],
+    ['Railing blocks (hall wing → stair opening)', [...UV(-9, 12).slice(0, 1), 8, UV(-9, 12)[1]], [UV(0, 12)], 8, true],
+    ['Railing blocks (bridge → landing below)', [...UV(0, 20).slice(0, 1), 8, UV(0, 20)[1]], [UV(0, 26)], 8, true],
+    ['Lake blocks', [0, 0, 40], [[0, 60]], 0, true],
+  ];
+  const out = [];
+  for (const [name, startPos, pts, expectY, expectStuck] of T){
+    player.pos.set(...startPos); player.vy = 0; player.onGround = true; player.speed = 0;
+    let stuck = false;
+    for (const [tx, tz] of pts){
+      let n = 0;
+      while (Math.hypot(tx - player.pos.x, tz - player.pos.z) > 0.3 && n < 900){
+        const dx = tx - player.pos.x, dz = tz - player.pos.z, l = Math.hypot(dx, dz);
+        autoInput = {x: dx/l, z: dz/l}; move(1/60); n++;
+      }
+      if (n >= 900){ stuck = true; break; }
+    }
+    autoInput = null; for (let i = 0; i < 60; i++) move(1/60);
+    const y = player.pos.y, ok = expectStuck ? stuck && Math.abs(y - expectY) < 0.3 : !stuck && Math.abs(y - expectY) < 0.3;
+    out.push(`${ok ? 'PASS' : 'FAIL'}  ${name}  → (${player.pos.x.toFixed(1)}, ${y.toFixed(2)}, ${player.pos.z.toFixed(1)})${stuck ? ' [stopped]' : ''}  expect y=${expectY}`);
+  }
+  const el = document.getElementById('testout');
+  el.textContent = out.join('\n') + `\n\ncolliders: ${cols.length}  triangles: ${TRIS}`;
+  el.style.display = 'block';
+  console.log(el.textContent);
+  player.pos.set(...SPAWN);
+}
+if (Q.has('test')) runTests();
+</script>
+</body>
+</html>
