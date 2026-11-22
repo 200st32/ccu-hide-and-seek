@@ -1238,7 +1238,8 @@ addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') 
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 let yaw = SPAWN_YAW, pitch = 0.28, dist = 6;            // camera behind the player, looking into the building
-const SENS_X = 0.0035, SENS_Y = 0.0028, PITCH_MIN = -0.35, PITCH_MAX = 1.25;
+const SENS_X = 0.0035, SENS_Y = 0.0028, PITCH_MIN = -1.05, PITCH_MAX = 1.25;   // camera can swing low enough to look up ~60°
+const CAM_FLOOR = 0.5, CAM_BACK = 0.25, CAM_MIN = 0.45;                        // camera stays ≥ CAM_FLOOR above the floor under it
 let mouseX = -1, locked = false, running = false, autoInput = null;
 const lockHint = document.getElementById('lock');
 function lockMouse(){ try { const p = canvas.requestPointerLock?.({unadjustedMovement:true}); p?.catch?.(() => { try { canvas.requestPointerLock(); } catch {} }); } catch {} }
@@ -1428,15 +1429,19 @@ function step(dt){
   o.scale.set(SC * (1 + (1 - sq) * 0.6), SC * sq, SC * (1 + (1 - sq) * 0.6));
   if (!air) o.position.y += Math.abs(Math.cos(player.phase)) * amp * 0.06;
 
-  // third-person camera: march back from the head and stop before any solid (walls, slabs, stairs)
+  // third-person camera: march back from the head and stop before any solid (walls, slabs, stairs). Each sample is first
+  // lifted to at least CAM_FLOOR above the floor under it (ray cast down with groundAt), so the camera slides along the
+  // floor instead of going under it; it then looks along the view direction (so looking up shows the roof, not the avatar).
+  // Signs, railings and glass have no camera collider (cam:false), so they never pull the camera in.
   camTarget.set(p.x, visY + 1.5, p.z);
   camDir.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch)).normalize();
+  const camAt = t => { const x = camTarget.x + camDir.x*t, z = camTarget.z + camDir.z*t, y = camTarget.y + camDir.y*t;
+    return [x, Math.max(y, groundAt(x, z, y + 0.3) + CAM_FLOOR), z]; };
   let d = dist;
-  for (let t = 0.3; t < dist; t += 0.12){
-    if (solidAt(camTarget.x + camDir.x*t, camTarget.y + camDir.y*t, camTarget.z + camDir.z*t)){ d = Math.max(0.45, t - 0.25); break; }
-  }
-  camera.position.copy(camTarget).addScaledVector(camDir, d);
-  camera.lookAt(camTarget);
+  for (let t = 0.3; t < dist; t += 0.12){ if (solidAt(...camAt(t))){ d = Math.max(CAM_MIN, t - CAM_BACK); break; } }
+  camera.position.set(...camAt(d));
+  camera.lookAt(camera.position.x - camDir.x, camera.position.y - camDir.y, camera.position.z - camDir.z);
+  o.visible = d > 0.8;                                                              // hide the avatar when the camera is inside it
   stamBar.style.width = (player.stamina*100) + '%';
 }
 function resize(){
