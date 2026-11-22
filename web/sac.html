@@ -151,6 +151,16 @@ const CM = [(P2[0] + P3[0]) / 2, (P2[1] + P3[1]) / 2];
 
 let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
+// ---------- CC0 source images (web/tex/, see tex/CREDITS.md): ambientCG Tiles053 (recoloured) + Concrete034 ----------
+const loadImg = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src; });
+const [IM_MOSAIC, IM_MOSAIC_N, IM_CONC, IM_CONC_N, IM_GRAIN] = await Promise.all(
+  ['tex/mosaic_color.jpg', 'tex/mosaic_normal.jpg', 'tex/concrete_color.jpg', 'tex/concrete_normal.jpg', 'tex/grain.jpg'].map(loadImg));
+const imgTex = (img, metres, srgb = true) => {
+  if (!img) return null;
+  const t = new THREE.Texture(img); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(1/metres, 1/metres); return t;
+};
+
 // ---------- textures (canvas, world-scale UVs: 1 unit = 1 m) ----------
 function tex(size, metres, draw){
   const c = document.createElement('canvas'); c.width = c.height = size;
@@ -160,12 +170,23 @@ function tex(size, metres, draw){
   t.repeat.set(1/metres, 1/metres);
   return t;
 }
-const T_PAVE = tex(256, 4, (g, s) => {            // irregular stone slabs (plaza, stairs)
-  g.fillStyle = '#6f6560'; g.fillRect(0, 0, s, s);
-  const cols = ['#9a8c84','#8a7d78','#a3958a','#7f7a80','#958579','#b0a093','#867c86','#a08c7a'];
-  for (let y = 0; y < s;){ const h = 12 + Math.floor(rand()*12);
-    for (let x = 0; x < s;){ const w = 18 + Math.floor(rand()*30); g.fillStyle = cols[Math.floor(rand()*cols.length)]; g.fillRect(x+1, y+1, Math.min(w, s-x)-2, Math.min(h, s-y)-2); x += w; }
-    y += h; }
+const PAVE_M = 6;                                  // paving texture covers 6 m × 6 m
+const T_PAVE = tex(512, PAVE_M, (g, s) => {       // multi-coloured slate flagstones in courses, light stone strips (see reference photos)
+  g.fillStyle = '#77706a'; g.fillRect(0, 0, s, s);
+  const cols = ['#7d7f84','#6f7479','#8a8580','#857a70','#77797c','#94897c','#6c7276','#8f8478','#7f746b','#9a9188','#727a80','#86807a'];
+  const px = s / PAVE_M;
+  for (let y = 0, row = 0; y < s; row++){
+    const strip = row === 0, h = strip ? Math.round(px*0.12) : Math.round(px*(0.28 + rand()*0.22));   // one light strip per 6 m
+    if (strip){ g.fillStyle = '#a8a196'; g.fillRect(0, y + 1, s, Math.min(h, s - y) - 1); y += h; continue; }
+    for (let x = 0; x < s;){
+      const w = Math.round(px*(0.4 + rand()*0.7));
+      g.fillStyle = cols[Math.floor(rand()*cols.length)]; g.fillRect(x + 1, y + 1, Math.min(w, s - x) - 2, Math.min(h, s - y) - 2);
+      g.fillStyle = `rgba(${rand() < .5 ? '255,250,240' : '30,32,36'},${0.04 + rand()*0.06})`;           // subtle per-slab shading
+      g.fillRect(x + 1, y + 1, Math.min(w, s - x) - 2, Math.min(h, s - y) - 2);
+      x += w;
+    }
+    y += h;
+  }
 });
 const tiles = (base, grout, vary) => (g, s) => {
   g.fillStyle = grout; g.fillRect(0, 0, s, s);
@@ -192,7 +213,29 @@ function brickDraw(win, base){
     }
   };
 }
-const T_BRICK = tex(256, 4, brickDraw(false, '#b67c63')), T_BRICKWIN = tex(256, 4, brickDraw(true, '#b67c63'));
+const MOSAIC_M = 0.8;                              // the CC0 mosaic image is 16 × 16 tiles → 5 cm tiles
+function mosaicDraw(win, normal){
+  return (g, s) => {
+    const px = s / 4, step = px * MOSAIC_M, img = normal ? IM_MOSAIC_N : IM_MOSAIC;
+    for (let y = 0; y < s; y += step) for (let x = 0; x < s; x += step) g.drawImage(img, x, y, step, step);
+    const flat = normal ? '#8080ff' : null;
+    g.fillStyle = flat || 'rgba(255,240,225,.35)'; g.fillRect(0, 0, s, px*0.14);                         // slab-edge band (canvas top = floor)
+    if (win){
+      const x0 = px*0.7, x1 = px*3.3, y0 = px*0.9, y1 = px*2.6, f = px*0.06;
+      if (normal){ g.fillStyle = flat; g.fillRect(x0-f, y0-f, x1-x0+2*f, y1-y0+2*f); return; }
+      g.fillStyle = '#3b3a38'; g.fillRect(x0-f, y0-f, x1-x0+2*f, y1-y0+2*f);                            // dark frames (reference)
+      g.fillStyle = '#35505f'; g.fillRect(x0, y0, x1-x0, y1-y0);
+      g.fillStyle = '#5f7f90'; g.fillRect(x0 + f, y0 + f, (x1-x0)/2 - 2*f, (y1-y0)*0.45);
+      g.fillStyle = '#3b3a38'; g.fillRect((x0+x1)/2 - f/2, y0, f, y1-y0); g.fillRect(x0, y0 + (y1-y0)*0.55, x1-x0, f*0.7);
+    }
+  };
+}
+const wallTex = (win, normal) => { const t = tex(1024, 4, mosaicDraw(win, normal)); if (normal) t.colorSpace = THREE.NoColorSpace; return t; };
+const HAVE_MOSAIC = !!(IM_MOSAIC && IM_MOSAIC_N);
+const T_BRICK = HAVE_MOSAIC ? wallTex(false, false) : tex(256, 4, brickDraw(false, '#b67c63'));
+const T_BRICKWIN = HAVE_MOSAIC ? wallTex(true, false) : tex(256, 4, brickDraw(true, '#b67c63'));
+const N_BRICK = HAVE_MOSAIC ? wallTex(false, true) : null, N_BRICKWIN = HAVE_MOSAIC ? wallTex(true, true) : null;
+const T_CONC = imgTex(IM_CONC, 2.5), N_CONC = imgTex(IM_CONC_N, 2.5, false), T_GRAIN = imgTex(IM_GRAIN, 1, false);
 const T_WALLWIN = tex(256, 4, (g, s) => {           // cream gallery-side wall with a window band
   const px = s/4; g.fillStyle = '#eee6d6'; g.fillRect(0, 0, s, s);
   g.fillStyle = '#d8cdb8'; g.fillRect(0, px*0.9, s, 3);
@@ -201,7 +244,7 @@ const T_WALLWIN = tex(256, 4, (g, s) => {           // cream gallery-side wall w
   g.fillStyle = '#4f6470'; g.fillRect(x0, y0, x1-x0, y1-y0);
   g.fillStyle = '#7b8f86'; g.fillRect((x0+x1)/2-2, y0, 4, y1-y0);
 });
-for (const t of [T_BRICK, T_BRICKWIN, T_WALLWIN]) t.offset.y = -0.25;   // side-wall v = 1 - height → canvas top is the floor
+for (const t of [T_BRICK, T_BRICKWIN, T_WALLWIN, N_BRICK, N_BRICKWIN]) if (t) t.offset.y = -0.25;   // side-wall v = 1 - height → canvas top is the floor
 const T_RAIL = (() => {                              // green balusters, 1 m period, transparent gaps
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   g.fillStyle = '#3b7a56'; g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5);
@@ -212,8 +255,8 @@ const T_RAIL = (() => {                              // green balusters, 1 m per
 // ---------- materials ----------
 const mat = (c, o={}) => new THREE.MeshStandardMaterial({color:c, roughness:.85, ...o});
 const MAT = {
-  concrete: mat(0xcfcac1), slab: mat(0xd9d4ca), wall: mat(0xefe8da), wallB: mat(0xd9c8ad), wallWin: mat(0xffffff, {map:T_WALLWIN}),
-  brick: mat(0xffffff, {map:T_BRICK}), brickWin: mat(0xffffff, {map:T_BRICKWIN}),
+  concrete: T_CONC ? mat(0xd8d3ca, {map:T_CONC, normalMap:N_CONC, normalScale:new THREE.Vector2(0.5, 0.5)}) : mat(0xcfcac1), slab: mat(0xd9d4ca), wall: mat(0xefe8da), wallB: mat(0xd9c8ad), wallWin: mat(0xffffff, {map:T_WALLWIN}),
+  brick: mat(0xffffff, {map:T_BRICK, normalMap:N_BRICK, roughness:.6}), brickWin: mat(0xffffff, {map:T_BRICKWIN, normalMap:N_BRICKWIN, roughness:.6}),
   pave: mat(0xffffff, {map:T_PAVE}), red: mat(0xffffff, {map:T_RED}), green: mat(0xffffff, {map:T_GREEN}), white: mat(0xffffff, {map:T_WHITE}),
   roof: mat(0x6f6a64), road: mat(0x4a4d52), grass: mat(0x79b35b), water: mat(0x3d8fc6, {roughness:.15, metalness:.1}),
   carpet: mat(0x7b2f37), stage: mat(0x8b5a35), wood: mat(0xb37a46), dark: mat(0x6b4a2e), seat: mat(0xa9353c), sofa: mat(0x5772a0),
@@ -227,6 +270,23 @@ const MAT = {
   canopyGlass: new THREE.MeshStandardMaterial({color:0x86cfc6, transparent:true, opacity:.55, roughness:.08, metalness:.15, depthWrite:false, side:THREE.DoubleSide}),
   roofGlass: new THREE.MeshStandardMaterial({color:0xd8eef5, transparent:true, opacity:.18, roughness:.05, metalness:.2, depthWrite:false, side:THREE.DoubleSide}),
   lamp: new THREE.MeshBasicMaterial({color:0xfffbea}),
+};
+// paving: break up the repeat with two scales of CC0 stone grain + low-frequency value noise (world-space)
+if (T_GRAIN) MAT.pave.onBeforeCompile = sh => {
+  sh.uniforms.grainMap = {value: T_GRAIN};
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+uniform sampler2D grainMap;
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
+  float a = fract(sin(dot(i, vec2(127.1, 311.7)))*43758.5453), b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7)))*43758.5453);
+  float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7)))*43758.5453), d = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7)))*43758.5453);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }`)
+    .replace('#include <map_fragment>', `#include <map_fragment>
+{ vec2 w = vMapUv * ${PAVE_M.toFixed(1)};                                  // back to metres
+  float g1 = texture2D(grainMap, w / 1.3).r, g2 = texture2D(grainMap, w / 7.7 + 0.37).r;
+  float n = vnoise(w / 9.0) * 0.6 + vnoise(w / 3.1 + 17.0) * 0.4;
+  diffuseColor.rgb *= (0.8 + 0.4*g1) * (0.88 + 0.24*g2) * (0.9 + 0.2*n);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.05, 0.98, 0.93), smoothstep(0.35, 0.75, vnoise(w / 14.0 + 5.0))); }`);
 };
 const NOCAST = new Set(['glass', 'roofGlass', 'canopyGlass', 'railP', 'lamp', 'water', 'grass', 'road']);
 
@@ -281,7 +341,8 @@ function bar(a, b, w, key, h = w){               // box beam between two 3D poin
   g.applyMatrix4(_m4.compose(new THREE.Vector3((a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2), _q, ONE));
   put(g, key);
 }
-function cylGeo(x, z, y0, y1, r, seg = 16){ const g = new THREE.CylinderGeometry(r, r, y1 - y0, seg); g.translate(x, (y0 + y1)/2, z); return g; }
+function cylUV(g, r, h){ const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*TAU*r, uv.getY(i)*h); return g; }
+function cylGeo(x, z, y0, y1, r, seg = 16){ const g = cylUV(new THREE.CylinderGeometry(r, r, y1 - y0, seg), r, y1 - y0); g.translate(x, (y0 + y1)/2, z); return g; }
 const rect = (x0, z0, x1, z1) => [[Math.min(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.max(z0,z1)], [Math.min(x0,x1), Math.max(z0,z1)]];
 const circlePts = (cx, cz, r, n = 24) => Array.from({length:n}, (_, i) => [cx + r*Math.cos(i/n*TAU), cz + r*Math.sin(i/n*TAU)]);
 function sectorPts(cx, cz, r0, r1, a0, a1, n = 3){   // annular sector polygon
@@ -829,7 +890,7 @@ const ROOF_INST = [];                                                 // instanc
     cols.push([vx(i), SGZ]);
   }
   for (let i = 0; i <= ROOF_N; i++) cols.push([vx(i), BZ]);
-  const cG = new THREE.CylinderGeometry(RCOL_R, RCOL_R*1.08, V, 18); cG.translate(0, V/2, 0);
+  const cG = cylUV(new THREE.CylinderGeometry(RCOL_R, RCOL_R*1.08, V, 18), RCOL_R, V); cG.translate(0, V/2, 0);
   const capG = mergeGeometries([[1,1],[1,-1],[-1,1],[-1,-1]].map(([a, c]) => barGeo([0, V - 1.6, 0], [a*1.6, V, c*1.6], 0.1)), false);  // branching arms at the top
   const cIM = new THREE.InstancedMesh(cG, MAT.concrete, cols.length), kIM = new THREE.InstancedMesh(capG, MAT.steel, cols.length);
   cols.forEach(([x, z], i) => { T.makeTranslation(x, 0, z); cIM.setMatrixAt(i, T); kIM.setMatrixAt(i, T); col(circlePts(x, z, RCOL_R, 10), 0, V); });
