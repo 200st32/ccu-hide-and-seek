@@ -59,11 +59,27 @@ the official floor map) + Kai's description. Standalone page (index.html links t
 - Collision: every solid is a vertical prism (polygon + holes, y0..y1 or y0..top(x,z) for ramps); player = cylinder
   (R 0.35, HEAD 1.8, STEP 0.5) with push-out, ground snapping, ceilings; helix colliders available (unused now); uniform grid.
   Stairs are drawn as steps but walked as smooth ramps. Camera ray-marches the same colliders.
-- Rendering: all static geometry merged per material (~40k tris). WebGL by default; `?gpu` loads the three.webgpu build
-  (WebGPURenderer → Dawn in Chrome, WebGL2 fallback). Not heavy, so WebGL stays default.
-- Debug: `?test` walks 48 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
+- Rendering: all static geometry merged per material (~38k tris); signs packed into one canvas atlas; atrium roof
+  modules, roof columns, trees, bushes are InstancedMesh. WebGL by default; `?gpu` loads the three.webgpu build
+  (WebGPURenderer → Dawn in Chrome, WebGL2 fallback; no AO on that path).
+  - Look: sRGB output + ACES tone mapping; Poly Haven CC0 HDRI (`web/tex/sky_1k.hdr`) as environment + sky; N8AO
+    (n8ao@2.0.1, needs postprocessing@6.39.4 in the import map) via EffectComposer → OutputPass, half-res.
+  - Textures: CC0 only, in `web/tex/` with `CREDITS.md` (ambientCG mosaic recoloured to terracotta, concrete; HDRI).
+    Never use the Google Maps reference images as textures (see `student_activity_center/REFERENCE_NOTES.md`).
+  - Atrium roof: sawtooth glass + steel space frame (8 instanced modules) on tall round columns; entrance has a flat
+    teal-glass canopy (camera occluder) with the 活動中心 band on the beam over the doors.
+  - Camera: pitch −1.05..1.25; every camera sample is lifted ≥ 0.5 m above the floor under it; signs, railings and
+    glass are not camera occluders (`cam:false`).
+  - Performance: pixel ratio cap 1.5 + dynamic resolution (drops once, floor 1.0, if frames > 18.5 ms); one shadow
+    light with a tight shadow camera fitted to `SHADOW_BOX`, 2048 map. Measured on Kai's MacBook (Intel Iris Plus),
+    1280×760: ≥ 60 fps with AO, ~120 draw calls (settles at pixel ratio 1.0; ~32–39 fps at a fixed 1.5).
+- Debug: `?test` walks 50 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
   `?shot=x,y,z,yaw,pitch,dist[&nohud]` places player/camera for screenshots. Headless Chrome works with `file://`
   + `--allow-file-access-from-files --use-angle=swiftshader --enable-unsafe-swiftshader`.
+  F3 / `?stats` = stats overlay (fps, draw calls, triangles, textures). `?bench=x,y,z,yaw,pitch,dist` = 6 s warm-up +
+  6 s measured camera spin, prints fps/p95/draw calls (use real GPU: `--use-angle=metal --disable-gpu-vsync
+  --disable-frame-rate-limit --disable-renderer-backgrounding`). Overrides: `?pr= ?shadowmap= ?aos= ?aod= ?noao ?noenv
+  ?aoview` (AO buffer only).
 - Approximations to revisit with Kai: room sizes (from the drawing's scale), 2F under the entrance hall (solid now), 演藝廳 interior,
   4F extent (north + west only), real club names. No door leaves yet (openings only).
 
