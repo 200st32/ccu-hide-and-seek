@@ -75,8 +75,9 @@ the official floor map) + Kai's description. Standalone page (index.html links t
     Let's Café window band, gashapon machines on the gallery outside.
   - 美妝小舖: skincare/makeup wall shelves (boxes, pump bottles, jars, tubes, perfume, sheet masks), tester gondolas (lipsticks,
     palettes, blush, nail polish, mirrors), till.
-  - 麗文 2F (photos in `student_activity_center/麗文/`): 國立中正大學書局 sign, Apple corner (laptops on two light-wood tables, all-in-one
-    desktops on the east wall counter, product boxes), stationery gondolas, 中正 souvenirs, books on the west wall under a blue wall.
+  - 麗文 (photos in `student_activity_center/麗文/`): 3F = Apple corner (laptops/tablets on three light-wood tables, all-in-one desktops
+    on the back-wall counter, product boxes) + checkout; 2F (國立中正大學書局 sign) = books (double-sided shelves, east-wall shelf,
+    new-release table, west wall under a blue wall), stationery gondolas, 中正 merchandise (notebooks, mugs, totes, T-shirts, caps, keychains).
 - Restrooms (`restroom(f)`, `WC`) on every floor right across corridor 2 from the square stair: shallow open entrance (water
   dispenser), 男 doorway on the left (west), 女 on the right; cubicles with doors (`addDoor(..., {open:true, color})`, E toggles),
   urinals, sinks + mirror.
