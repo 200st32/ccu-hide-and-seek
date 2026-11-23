@@ -46,6 +46,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 #jumpBtn{position:fixed;right:calc(22px + env(safe-area-inset-right));bottom:calc(28px + env(safe-area-inset-bottom));width:76px;height:76px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:rgba(0,0,0,.35);color:#fff;font:800 15px/1.1 "Noto Sans TC",sans-serif;display:none;touch-action:none;user-select:none;-webkit-user-select:none;z-index:3}
 #jumpBtn.on{background:rgba(255,255,255,.4)}
 #mhelp{left:50%;transform:translateX(-50%);bottom:112px;font-size:12px;display:none;text-align:center}
+#stats{position:fixed;left:calc(10px + env(safe-area-inset-left));top:calc(64px + env(safe-area-inset-top));z-index:4;background:rgba(0,0,0,.7);color:#bff5c8;font:12px/1.45 ui-monospace,Menlo,monospace;padding:6px 10px;border-radius:6px;white-space:pre;display:none;pointer-events:none}
 #testout{position:fixed;left:10px;top:60px;z-index:9;background:#fff;color:#000;font:12px/1.4 monospace;padding:8px;max-width:90vw;white-space:pre-wrap;display:none}
 @media(max-width:600px),(max-height:500px){#mini{width:160px;height:100px}#help{display:none}#title b{font-size:18px}#title span{display:none}#where{top:auto;bottom:calc(40px + env(safe-area-inset-bottom));font-size:13px;padding:4px 12px}#info{display:none}}
 @media(max-height:500px){#mini{width:136px;height:85px}#start div{padding:18px 22px}#start h1{font-size:22px}#start p{margin-bottom:10px}}
@@ -57,7 +58,9 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
   const base = 'https://cdn.jsdelivr.net/npm/three@0.170.0/';
   document.write('<script type="importmap">' + JSON.stringify({imports:{
     three: base + (gpu ? 'build/three.webgpu.js' : 'build/three.module.js'),
-    'three/addons/': base + 'examples/jsm/'}}) + '<\/script>');
+    'three/addons/': base + 'examples/jsm/', 'three/examples/jsm/': base + 'examples/jsm/',
+    postprocessing: 'https://cdn.jsdelivr.net/npm/postprocessing@6.39.4/build/index.js',
+    n8ao: 'https://cdn.jsdelivr.net/npm/n8ao@2.0.1/dist/N8AO.js'}}) + '<\/script>');
 })();
 </script>
 </head>
@@ -73,11 +76,13 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 <button id="jumpBtn" aria-label="Jump">跳<br>Jump</button>
 <div class="hud" id="mhelp">左半邊拖曳移動（推到底衝刺）· 右半邊拖曳看 <br>Drag left side to move (push far to sprint) · drag right side to look</div>
 <pre id="testout"></pre>
+<pre id="stats"></pre>
 <div id="start"><div><h1>中正大學 活動中心</h1><p>Explore all four floors of the Student Activity Center. The main entrance is on 3F. 正門在三樓，小吃街在一樓。</p><button id="go">開始 Start</button><a href="index.html">← Whole campus 全校園</a></div></div>
 
 <script type="module">
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 const Q = new URLSearchParams(location.search);
 const canvas = document.getElementById('game');
@@ -90,9 +95,13 @@ if (Q.has('gpu') && THREE.WebGPURenderer){
   await renderer.init();
   backend = renderer.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGPU build → WebGL2 fallback';
 } else renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-renderer.setPixelRatio(Math.min(devicePixelRatio, MOBILE ? 1.5 : 2));
+const PR_MAX = 1.5;                                                    // pixel-ratio cap (retina screens render at 1.5×, not 2×)
+renderer.setPixelRatio(Q.has('pr') ? +Q.get('pr') : Math.min(devicePixelRatio, PR_MAX));   // ?pr= overrides (benchmarks)
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = Q.get('shadowtype') === 'pcf' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;          // sRGB output
+renderer.toneMapping = THREE.ACESFilmicToneMapping;          // ACES filmic tone mapping
+const EXPOSURE = 0.9; renderer.toneMappingExposure = EXPOSURE;
 
 const scene = new THREE.Scene();
 const SKY = 0xa8d8f0;
@@ -100,13 +109,34 @@ scene.background = new THREE.Color(SKY);
 scene.fog = new THREE.Fog(SKY, 140, 420);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 900);
 
-scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a55, 1.0));
-scene.add(new THREE.AmbientLight(0xfff4e6, 0.55));            // keeps interiors readable under 4 storeys of slabs
-const sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+// image-based lighting: CC0 outdoor HDRI (Poly Haven kloofendal_48d_partly_cloudy_puresky) as environment + visible sky
+const ENV_INT = 0.35, HEMI_INT = 0.15, AMB_INT = 0.12, SUN_INT = 2.6;
+try {
+  const hdr = await new RGBELoader().loadAsync('tex/sky_1k.hdr');
+  hdr.mapping = THREE.EquirectangularReflectionMapping;
+  const pm = new THREE.PMREMGenerator(renderer);
+  if (!Q.has('noenv')) scene.environment = pm.fromEquirectangular(hdr).texture; pm.dispose();
+  scene.environmentIntensity = ENV_INT;
+  scene.background = hdr; scene.backgroundIntensity = 0.9;
+} catch (e){ console.warn('HDRI not loaded', e); }
+scene.add(new THREE.HemisphereLight(0xe8f4ff, 0x7a6a55, HEMI_INT));
+scene.add(new THREE.AmbientLight(0xfff4e6, AMB_INT));        // small fill so deep interiors stay readable
+const sun = new THREE.DirectionalLight(0xfff1d6, SUN_INT);
 sun.position.set(55, 95, 35); sun.target.position.set(0, 0, 0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(MOBILE ? 2048 : 4096, MOBILE ? 2048 : 4096);
-Object.assign(sun.shadow.camera, {left:-100, right:100, top:100, bottom:-100, near:10, far:320});
+const SHADOW_MAP = 2048;                                               // one shadow-casting light (the sun), 2048² map
+{ const sm = Q.has('shadowmap') ? +Q.get('shadowmap') : SHADOW_MAP; sun.shadow.mapSize.set(sm, sm); if (sm === 0) sun.castShadow = false; }
+// tight shadow camera: fit the light's ortho frustum to the building + its plaza (x, y, z box below) seen from the sun
+const SHADOW_BOX = [[-92, -1, -58], [70, 23, 50]];
+{
+  const c = new THREE.OrthographicCamera(); c.position.copy(sun.position); c.lookAt(sun.target.position); c.updateMatrixWorld();
+  const lo = new THREE.Vector3(Infinity, Infinity, Infinity), hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity), v = new THREE.Vector3();
+  for (const x of [0, 1]) for (const y of [0, 1]) for (const z of [0, 1]){
+    v.set(SHADOW_BOX[x][0], SHADOW_BOX[y][1], SHADOW_BOX[z][2]).applyMatrix4(c.matrixWorldInverse); lo.min(v); hi.max(v);
+  }
+  Object.assign(sun.shadow.camera, {left:lo.x, right:hi.x, bottom:lo.y, top:hi.y, near:Math.max(0.5, -hi.z - 1), far:-lo.z + 1});
+  sun.shadow.camera.updateProjectionMatrix();
+}
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
 scene.add(sun, sun.target);
 
@@ -151,6 +181,16 @@ const CM = [(P2[0] + P3[0]) / 2, (P2[1] + P3[1]) / 2];
 
 let seed = 11; const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
+// ---------- CC0 source images (web/tex/, see tex/CREDITS.md): ambientCG Tiles053 (recoloured) + Concrete034 ----------
+const loadImg = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = src; });
+const [IM_MOSAIC, IM_MOSAIC_N, IM_CONC, IM_CONC_N, IM_GRAIN] = await Promise.all(
+  ['tex/mosaic_color.jpg', 'tex/mosaic_normal.jpg', 'tex/concrete_color.jpg', 'tex/concrete_normal.jpg', 'tex/grain.jpg'].map(loadImg));
+const imgTex = (img, metres, srgb = true) => {
+  if (!img) return null;
+  const t = new THREE.Texture(img); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.repeat.set(1/metres, 1/metres); return t;
+};
+
 // ---------- textures (canvas, world-scale UVs: 1 unit = 1 m) ----------
 function tex(size, metres, draw){
   const c = document.createElement('canvas'); c.width = c.height = size;
@@ -160,12 +200,23 @@ function tex(size, metres, draw){
   t.repeat.set(1/metres, 1/metres);
   return t;
 }
-const T_PAVE = tex(256, 4, (g, s) => {            // irregular stone slabs (plaza, stairs)
-  g.fillStyle = '#6f6560'; g.fillRect(0, 0, s, s);
-  const cols = ['#9a8c84','#8a7d78','#a3958a','#7f7a80','#958579','#b0a093','#867c86','#a08c7a'];
-  for (let y = 0; y < s;){ const h = 12 + Math.floor(rand()*12);
-    for (let x = 0; x < s;){ const w = 18 + Math.floor(rand()*30); g.fillStyle = cols[Math.floor(rand()*cols.length)]; g.fillRect(x+1, y+1, Math.min(w, s-x)-2, Math.min(h, s-y)-2); x += w; }
-    y += h; }
+const PAVE_M = 6;                                  // paving texture covers 6 m × 6 m
+const T_PAVE = tex(512, PAVE_M, (g, s) => {       // multi-coloured slate flagstones in courses, light stone strips (see reference photos)
+  g.fillStyle = '#77706a'; g.fillRect(0, 0, s, s);
+  const cols = ['#7d7f84','#6f7479','#8a8580','#857a70','#77797c','#94897c','#6c7276','#8f8478','#7f746b','#9a9188','#727a80','#86807a'];
+  const px = s / PAVE_M;
+  for (let y = 0, row = 0; y < s; row++){
+    const strip = row === 0, h = strip ? Math.round(px*0.12) : Math.round(px*(0.28 + rand()*0.22));   // one light strip per 6 m
+    if (strip){ g.fillStyle = '#a8a196'; g.fillRect(0, y + 1, s, Math.min(h, s - y) - 1); y += h; continue; }
+    for (let x = 0; x < s;){
+      const w = Math.round(px*(0.4 + rand()*0.7));
+      g.fillStyle = cols[Math.floor(rand()*cols.length)]; g.fillRect(x + 1, y + 1, Math.min(w, s - x) - 2, Math.min(h, s - y) - 2);
+      g.fillStyle = `rgba(${rand() < .5 ? '255,250,240' : '30,32,36'},${0.04 + rand()*0.06})`;           // subtle per-slab shading
+      g.fillRect(x + 1, y + 1, Math.min(w, s - x) - 2, Math.min(h, s - y) - 2);
+      x += w;
+    }
+    y += h;
+  }
 });
 const tiles = (base, grout, vary) => (g, s) => {
   g.fillStyle = grout; g.fillRect(0, 0, s, s);
@@ -192,7 +243,29 @@ function brickDraw(win, base){
     }
   };
 }
-const T_BRICK = tex(256, 4, brickDraw(false, '#b67c63')), T_BRICKWIN = tex(256, 4, brickDraw(true, '#b67c63'));
+const MOSAIC_M = 0.8;                              // the CC0 mosaic image is 16 × 16 tiles → 5 cm tiles
+function mosaicDraw(win, normal){
+  return (g, s) => {
+    const px = s / 4, step = px * MOSAIC_M, img = normal ? IM_MOSAIC_N : IM_MOSAIC;
+    for (let y = 0; y < s; y += step) for (let x = 0; x < s; x += step) g.drawImage(img, x, y, step, step);
+    const flat = normal ? '#8080ff' : null;
+    g.fillStyle = flat || 'rgba(255,240,225,.35)'; g.fillRect(0, 0, s, px*0.14);                         // slab-edge band (canvas top = floor)
+    if (win){
+      const x0 = px*0.7, x1 = px*3.3, y0 = px*0.9, y1 = px*2.6, f = px*0.06;
+      if (normal){ g.fillStyle = flat; g.fillRect(x0-f, y0-f, x1-x0+2*f, y1-y0+2*f); return; }
+      g.fillStyle = '#3b3a38'; g.fillRect(x0-f, y0-f, x1-x0+2*f, y1-y0+2*f);                            // dark frames (reference)
+      g.fillStyle = '#35505f'; g.fillRect(x0, y0, x1-x0, y1-y0);
+      g.fillStyle = '#5f7f90'; g.fillRect(x0 + f, y0 + f, (x1-x0)/2 - 2*f, (y1-y0)*0.45);
+      g.fillStyle = '#3b3a38'; g.fillRect((x0+x1)/2 - f/2, y0, f, y1-y0); g.fillRect(x0, y0 + (y1-y0)*0.55, x1-x0, f*0.7);
+    }
+  };
+}
+const wallTex = (win, normal) => { const t = tex(1024, 4, mosaicDraw(win, normal)); if (normal) t.colorSpace = THREE.NoColorSpace; return t; };
+const HAVE_MOSAIC = !!(IM_MOSAIC && IM_MOSAIC_N);
+const T_BRICK = HAVE_MOSAIC ? wallTex(false, false) : tex(256, 4, brickDraw(false, '#b67c63'));
+const T_BRICKWIN = HAVE_MOSAIC ? wallTex(true, false) : tex(256, 4, brickDraw(true, '#b67c63'));
+const N_BRICK = HAVE_MOSAIC ? wallTex(false, true) : null, N_BRICKWIN = HAVE_MOSAIC ? wallTex(true, true) : null;
+const T_CONC = imgTex(IM_CONC, 2.5), N_CONC = imgTex(IM_CONC_N, 2.5, false), T_GRAIN = imgTex(IM_GRAIN, 1, false);
 const T_WALLWIN = tex(256, 4, (g, s) => {           // cream gallery-side wall with a window band
   const px = s/4; g.fillStyle = '#eee6d6'; g.fillRect(0, 0, s, s);
   g.fillStyle = '#d8cdb8'; g.fillRect(0, px*0.9, s, 3);
@@ -201,7 +274,7 @@ const T_WALLWIN = tex(256, 4, (g, s) => {           // cream gallery-side wall w
   g.fillStyle = '#4f6470'; g.fillRect(x0, y0, x1-x0, y1-y0);
   g.fillStyle = '#7b8f86'; g.fillRect((x0+x1)/2-2, y0, 4, y1-y0);
 });
-for (const t of [T_BRICK, T_BRICKWIN, T_WALLWIN]) t.offset.y = -0.25;   // side-wall v = 1 - height → canvas top is the floor
+for (const t of [T_BRICK, T_BRICKWIN, T_WALLWIN, N_BRICK, N_BRICKWIN]) if (t) t.offset.y = -0.25;   // side-wall v = 1 - height → canvas top is the floor
 const T_RAIL = (() => {                              // green balusters, 1 m period, transparent gaps
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   g.fillStyle = '#3b7a56'; g.fillRect(0, 0, 64, 5); g.fillRect(0, 59, 64, 5);
@@ -212,8 +285,8 @@ const T_RAIL = (() => {                              // green balusters, 1 m per
 // ---------- materials ----------
 const mat = (c, o={}) => new THREE.MeshStandardMaterial({color:c, roughness:.85, ...o});
 const MAT = {
-  concrete: mat(0xcfcac1), slab: mat(0xd9d4ca), wall: mat(0xefe8da), wallB: mat(0xd9c8ad), wallWin: mat(0xffffff, {map:T_WALLWIN}),
-  brick: mat(0xffffff, {map:T_BRICK}), brickWin: mat(0xffffff, {map:T_BRICKWIN}),
+  concrete: T_CONC ? mat(0xd8d3ca, {map:T_CONC, normalMap:N_CONC, normalScale:new THREE.Vector2(0.5, 0.5)}) : mat(0xcfcac1), slab: mat(0xd9d4ca), wall: mat(0xefe8da), wallB: mat(0xd9c8ad), wallWin: mat(0xffffff, {map:T_WALLWIN}),
+  brick: mat(0xffffff, {map:T_BRICK, normalMap:N_BRICK, roughness:.6}), brickWin: mat(0xffffff, {map:T_BRICKWIN, normalMap:N_BRICKWIN, roughness:.6}),
   pave: mat(0xffffff, {map:T_PAVE}), red: mat(0xffffff, {map:T_RED}), green: mat(0xffffff, {map:T_GREEN}), white: mat(0xffffff, {map:T_WHITE}),
   roof: mat(0x6f6a64), road: mat(0x4a4d52), grass: mat(0x79b35b), water: mat(0x3d8fc6, {roughness:.15, metalness:.1}),
   carpet: mat(0x7b2f37), stage: mat(0x8b5a35), wood: mat(0xb37a46), dark: mat(0x6b4a2e), seat: mat(0xa9353c), sofa: mat(0x5772a0),
@@ -224,10 +297,28 @@ const MAT = {
   railP: mat(0xffffff, {map:T_RAIL, alphaTest:.5, side:THREE.DoubleSide, roughness:.5}),
   steel: mat(0x939ca3, {roughness:.45, metalness:.5}),
   glass: new THREE.MeshStandardMaterial({color:0xcfeaf5, transparent:true, opacity:.25, roughness:.05, metalness:.2, depthWrite:false, side:THREE.DoubleSide}),
+  canopyGlass: new THREE.MeshStandardMaterial({color:0x86cfc6, transparent:true, opacity:.55, roughness:.08, metalness:.15, depthWrite:false, side:THREE.DoubleSide}),
   roofGlass: new THREE.MeshStandardMaterial({color:0xd8eef5, transparent:true, opacity:.18, roughness:.05, metalness:.2, depthWrite:false, side:THREE.DoubleSide}),
   lamp: new THREE.MeshBasicMaterial({color:0xfffbea}),
 };
-const NOCAST = new Set(['glass', 'roofGlass', 'railP', 'lamp', 'water', 'grass', 'road']);
+// paving: break up the repeat with two scales of CC0 stone grain + low-frequency value noise (world-space)
+if (T_GRAIN) MAT.pave.onBeforeCompile = sh => {
+  sh.uniforms.grainMap = {value: T_GRAIN};
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', `#include <common>
+uniform sampler2D grainMap;
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f);
+  float a = fract(sin(dot(i, vec2(127.1, 311.7)))*43758.5453), b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7)))*43758.5453);
+  float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7)))*43758.5453), d = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7)))*43758.5453);
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y); }`)
+    .replace('#include <map_fragment>', `#include <map_fragment>
+{ vec2 w = vMapUv * ${PAVE_M.toFixed(1)};                                  // back to metres
+  float g1 = texture2D(grainMap, w / 1.3).r, g2 = texture2D(grainMap, w / 7.7 + 0.37).r;
+  float n = vnoise(w / 9.0) * 0.6 + vnoise(w / 3.1 + 17.0) * 0.4;
+  diffuseColor.rgb *= (0.8 + 0.4*g1) * (0.88 + 0.24*g2) * (0.9 + 0.2*n);
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.05, 0.98, 0.93), smoothstep(0.35, 0.75, vnoise(w / 14.0 + 5.0))); }`);
+};
+const NOCAST = new Set(['glass', 'roofGlass', 'canopyGlass', 'railP', 'lamp', 'water', 'grass', 'road']);
 
 // ---------- geometry buckets: everything static is merged per material at the end ----------
 const buckets = new Map();
@@ -246,7 +337,7 @@ function flush(){
     tris += g.attributes.position.count / 3;
     const m = new THREE.Mesh(g, MAT[key]);
     m.castShadow = !n && !NOCAST.has(key); m.receiveShadow = key !== 'lamp';
-    if (key === 'glass' || key === 'roofGlass') m.renderOrder = 2;
+    if (key === 'glass' || key === 'roofGlass' || key === 'canopyGlass') m.renderOrder = 2;
     scene.add(m);
   }
   buckets.clear();
@@ -280,7 +371,8 @@ function bar(a, b, w, key, h = w){               // box beam between two 3D poin
   g.applyMatrix4(_m4.compose(new THREE.Vector3((a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2), _q, ONE));
   put(g, key);
 }
-function cylGeo(x, z, y0, y1, r, seg = 16){ const g = new THREE.CylinderGeometry(r, r, y1 - y0, seg); g.translate(x, (y0 + y1)/2, z); return g; }
+function cylUV(g, r, h){ const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i)*TAU*r, uv.getY(i)*h); return g; }
+function cylGeo(x, z, y0, y1, r, seg = 16){ const g = cylUV(new THREE.CylinderGeometry(r, r, y1 - y0, seg), r, y1 - y0); g.translate(x, (y0 + y1)/2, z); return g; }
 const rect = (x0, z0, x1, z1) => [[Math.min(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.min(z0,z1)], [Math.max(x0,x1), Math.max(z0,z1)], [Math.min(x0,x1), Math.max(z0,z1)]];
 const circlePts = (cx, cz, r, n = 24) => Array.from({length:n}, (_, i) => [cx + r*Math.cos(i/n*TAU), cz + r*Math.sin(i/n*TAU)]);
 function sectorPts(cx, cz, r0, r1, a0, a1, n = 3){   // annular sector polygon
@@ -501,16 +593,39 @@ function solidAt(x, y, z){                         // camera occlusion
 }
 
 // ---------- signs (unlit canvas planes) ----------
+// signs are packed into atlas pages (shelf packing): one canvas texture + one merged mesh per page → 1 draw call per page
+const ATLAS = 2048, SIGN_W = 512, signPages = [];
+function signSlot(Hh){
+  let pg = signPages[signPages.length - 1];
+  const fits = p => (p.x + SIGN_W <= ATLAS && p.y + Math.max(p.rowH, Hh) <= ATLAS) || p.y + p.rowH + Hh <= ATLAS;
+  if (!pg || !fits(pg)){
+    const c = document.createElement('canvas'); c.width = c.height = ATLAS;
+    pg = {c, g:c.getContext('2d'), x:0, y:0, rowH:0, geos:[]}; signPages.push(pg);
+  }
+  if (pg.x + SIGN_W > ATLAS){ pg.x = 0; pg.y += pg.rowH; pg.rowH = 0; }
+  const slot = {pg, x:pg.x, y:pg.y}; pg.x += SIGN_W; pg.rowH = Math.max(pg.rowH, Hh);
+  return slot;
+}
 function sign(main, sub, x, y, z, rotY, w, h, bg = '#264d3a', fg = '#fff'){
-  const W = 512, Hh = Math.max(64, Math.round(W * h / w));
-  const c = document.createElement('canvas'); c.width = W; c.height = Hh;
-  const g = c.getContext('2d'); g.fillStyle = bg; g.fillRect(0, 0, W, Hh);
+  const W = SIGN_W, Hh = Math.max(64, Math.round(W * h / w)), {pg, x:ax, y:ay} = signSlot(Hh), g = pg.g;
+  g.save(); g.beginPath(); g.rect(ax, ay, W, Hh); g.clip(); g.translate(ax, ay);
+  g.fillStyle = bg; g.fillRect(0, 0, W, Hh);
   g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle';
   const fit = (t, size, yy, weight) => { let s = Math.floor(size); do { g.font = `${weight} ${s}px "Noto Sans TC", "PingFang TC", sans-serif`; s -= 2; } while (g.measureText(t).width > W*0.9 && s > 10); g.fillText(t, W/2, yy); };
   if (sub){ fit(main, Hh*0.5, Hh*0.38, 800); fit(sub, Hh*0.24, Hh*0.78, 500); } else fit(main, Hh*0.62, Hh*0.54, 800);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({map:t}));
-  m.position.set(x, y, z); m.rotation.y = rotY; scene.add(m); return m;
+  g.restore();
+  const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv, e = 1.5;            // inset 1.5 px against bleeding
+  for (let i = 0; i < uv.count; i++){
+    const u = uv.getX(i), v = uv.getY(i);
+    uv.setXY(i, (ax + e + u*(W - 2*e)) / ATLAS, 1 - (ay + e + (1 - v)*(Hh - 2*e)) / ATLAS);
+  }
+  geo.rotateY(rotY); geo.translate(x, y, z); pg.geos.push(geo);
+}
+function flushSigns(){
+  for (const pg of signPages){
+    const t = new THREE.CanvasTexture(pg.c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.generateMipmaps = true;
+    scene.add(new THREE.Mesh(mergeGeometries(pg.geos, false), new THREE.MeshBasicMaterial({map:t})));
+  }
 }
 const split = n => { const i = n.indexOf(' '); return i < 0 ? [n, ''] : [n.slice(0, i), n.slice(i + 1)]; };
 
@@ -613,7 +728,7 @@ for (const f of [1, 2, 3]){
 }
 // roofs: 4-storey parts at L[4], south walkway + east block at L[3]
 for (const pts of [rect(WX, -BZ, NX1, NGZ), rect(BXW, TN, WX, SLOT[0]), rect(BXW, SLOT[1], WX, C2Z[1]), rect(BXW, C2Z[1], STW[0], BZ), rect(STW[1], C2Z[1], WX, BZ), rect(WX, NGZ, WGX, BZ), OUT_NE]){ solid(pts, L[4] - SL, L[4], 'slab'); floorF(pts, L[4] + 0.01, 'roof'); }
-for (const pts of [rect(WGX, SGZ, EX, BZ), rect(EX, EZ, BXE, BZ)]){ solid(pts, L[3] - SL, L[3], 'slab'); floorF(pts, L[3] + 0.01, 'roof'); }
+for (const pts of [rect(EX, EZ, BXE, BZ)]){ solid(pts, L[3] - SL, L[3], 'slab'); floorF(pts, L[3] + 0.01, 'roof'); }   // south walkways: open to the atrium roof
 // gallery / walkway floor finishes
 floorF(rect(WX, NZ, EX, BZ), 0.015, 'pave');
 floorF(rect(BXW, C1Z[0], WX, C1Z[1]), 0.015, 'red'); floorF(rect(BXW, C2Z[0], WX, C2Z[1]), 0.015, 'red');
@@ -712,14 +827,10 @@ wallLine(BXE, EZ, BXE, BZ, L[2], L[3], 'brickWin', [], EXT);
 wseg(EX, EZ, BXE, EZ, L[3], L[4], 'brick');
 // roof parapets
 for (const [a, b] of [[[BXW,TN], [WX,TN]], [[WX,TN], [WX,-BZ]], [[WX,-BZ], P1], [P1, P2], [P2, P3], [P3, P4], [P4, [BXE, EZ]], [[BXW,TN],[BXW,SLOT[0]]], [[BXW,SLOT[1]],[BXW,BZ]], [[BXW,BZ],[WX,BZ]], [[BXW,SLOT[0]],[WX,SLOT[0]]], [[BXW,SLOT[1]],[WX,SLOT[1]]]]) wseg(...a, ...b, L[4], L[4] + 0.9, 'brick');
-for (const [a, b] of [[[EX,BZ],[BXE,BZ]], [[BXE,EZ],[BXE,BZ]], [[WGX,BZ],[EX,BZ]]]) wseg(...a, ...b, L[3], L[3] + 0.9, 'brick');
-sign('活動中心', 'Student Activity Center', CM[0] + CN[0]*0.2, L[2] + 3.5, CM[1] + CN[1]*0.2, Math.atan2(CN[0], CN[1]), 6.5, 1.3, '#4a4a46');
+for (const [a, b] of [[[EX,BZ],[BXE,BZ]], [[BXE,EZ],[BXE,BZ]]]) wseg(...a, ...b, L[3], L[3] + 0.9, 'brick');
 
 // ---------- atrium: pillars, railings ----------
-for (const x of [-15, -7, 1, 9, 22]) pillar(x, NGZ, 0, L[4]);
-for (const z of [NGZ, -6, 8, 14, SGZ]) pillar(WGX, z, 0, L[4]);
-for (const x of [-8, 0, 8, 24, 32]) pillar(x, SGZ, 0, L[3]);
-for (const x of [-20, -12, -4, 4, 12, 20, 28, 36]) pillar(x, BZ, 0, L[3]);
+for (const z of [NGZ, -6, 8, 14, SGZ]) pillar(WGX, z, 0, L[4]);     // west gallery; the north / south rows are the tall roof columns (below)
 // bridge: one diagonal 3F bridge (green in the drawing), north gallery → south-west corner of the atrium
 const BR3 = [[18.5, NGZ], [WGX, 19.5]];
 const BRIDGES = [];
@@ -791,24 +902,74 @@ function switchback(o){
 switchback({O:TOWER_C, a:[1, 0], s:[0, 1], near:TOWER_C[0] - WGX, run:4, W:CSW, semi:true, open:true, floors:3});
 zone('旋轉梯 Circle Stair', 0, WGX, TOWER_C[1] - CSW, TOWER_C[0] + 4 + CSW, TOWER_C[1] + CSW, null, -0.5, 13);
 
-// ---------- glass vault over the atrium ----------
+// ---------- atrium roof: sawtooth (folded) glass + steel space frame on tall slender round columns (instanced) ----------
+// One module = one fold (valley → ridge → valley) running north–south over the atrium and the open south walkways.
+const ROOF_N = 8, ROOF_MW = (EX - WGX) / ROOF_N, ROOF_YV = L[4] + 2.5, ROOF_YR = ROOF_YV + 2.4, ROOF_YB = ROOF_YV - 1.4;
+const ROOF_Z = [NGZ - 0.6, BZ + 1.2], ROOF_DZ = 2.5;
+const RCOL_R = 0.42;                                                  // tall column radius
+function barGeo(a, b, w, h = w){                                      // like bar(), but returns the geometry
+  const d = new THREE.Vector3(b[0]-a[0], b[1]-a[1], b[2]-a[2]), len = d.length(), g = new THREE.BoxGeometry(len, h, w);
+  _q.setFromUnitVectors(XAXIS, d.normalize());
+  return g.applyMatrix4(_m4.compose(new THREE.Vector3((a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2), _q, ONE)).toNonIndexed();
+}
+const ROOF_INST = [];                                                 // instanced meshes (counted in the stats overlay)
 {
-  const VX0 = WGX, VX1 = EX, ZC = (NGZ + SGZ)/2, VW = (SGZ - NGZ)/2, RV = (VW*VW + 9) / 6, cy = L[4] + 3 - RV, d = Math.asin(VW / RV), len = VX1 - VX0;
-  const g = new THREE.CylinderGeometry(RV, RV, len, 40, 1, true, Math.PI/2 - d, 2*d);
-  g.rotateZ(Math.PI/2); g.translate((VX0 + VX1)/2, cy, ZC); put(g, 'roofGlass', false);
-  for (let x = VX0; x <= VX1 + 0.01; x += len/10){
-    let prev = null;
-    for (let i = 0; i <= 10; i++){ const a = -d + 2*d*i/10, p = [x, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)]; if (prev) bar(prev, p, 0.14, 'steel', 0.3); prev = p; }
+  const [Z0, Z1] = ROOF_Z, M = ROOF_MW, H2 = M/2, V = ROOF_YV, R = ROOF_YR, B = ROOF_YB;
+  // glass: two sloped panels per module
+  const gp = [0,V,Z0, H2,R,Z0, H2,R,Z1,  0,V,Z0, H2,R,Z1, 0,V,Z1,   H2,R,Z0, M,V,Z0, M,V,Z1,  H2,R,Z0, M,V,Z1, H2,R,Z1];
+  const glassG = new THREE.BufferGeometry(); glassG.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3)); glassG.computeVertexNormals();
+  // steel: valley + ridge beams, purlins + mullions on the glass, a bottom chord and diagonals below (space frame)
+  const st = [barGeo([0,V,Z0], [0,V,Z1], 0.28, 0.32), barGeo([H2,R,Z0], [H2,R,Z1], 0.22, 0.26), barGeo([H2,B,Z0], [H2,B,Z1], 0.16)];
+  for (const x of [M/4, 3*M/4]){ const y = (V + R)/2; st.push(barGeo([x,y,Z0], [x,y,Z1], 0.07)); }
+  for (let z = Z0; z <= Z1 + 0.01; z += ROOF_DZ){
+    st.push(barGeo([0,V,z], [H2,R,z], 0.09), barGeo([H2,R,z], [M,V,z], 0.09));                  // purlins (frame shadow lines)
+    st.push(barGeo([0,B + 0.7,z], [M,B + 0.7,z], 0.08));                                       // cross tie
+    st.push(barGeo([H2,B,z], [H2,R,z], 0.08));                                                 // vertical strut under the ridge
+    const zn = Math.min(Z1, z + ROOF_DZ/2);
+    st.push(barGeo([H2,B,z], [0,V,zn], 0.07), barGeo([H2,B,z], [M,V,zn], 0.07));                 // diagonals to the valleys
   }
-  for (const a of [-d, -d/2, 0, d/2, d]) bar([VX0, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], [VX1, cy + RV*Math.cos(a), ZC + RV*Math.sin(a)], 0.1, 'steel');
+  const steelG = mergeGeometries(st, false);
+  const glassM = new THREE.MeshStandardMaterial({color:0xcfe9ef, transparent:true, opacity:0.2, roughness:0.05, metalness:0.1, depthWrite:false, side:THREE.DoubleSide});
+  const gIM = new THREE.InstancedMesh(glassG, glassM, ROOF_N), sIM = new THREE.InstancedMesh(steelG, MAT.steel, ROOF_N);
+  const T = new THREE.Matrix4();
+  for (let i = 0; i < ROOF_N; i++){ T.makeTranslation(WGX + i*M, 0, 0); gIM.setMatrixAt(i, T); sIM.setMatrixAt(i, T); }
+  gIM.renderOrder = 2; gIM.castShadow = false; gIM.receiveShadow = false;                      // sunlight passes the glass,
+  sIM.castShadow = true; sIM.receiveShadow = true;                                             // the steel frame casts shadows
+  scene.add(gIM, sIM); ROOF_INST.push(gIM, sIM);
+  // tall slender round columns under the valleys: north edge, inner south edge (walkway line) and outer south face
+  const cols = [], vx = i => WGX + i*M;
+  for (let i = 1; i < ROOF_N; i++){
+    if (vx(i) < NX1 - 4 && Math.abs(vx(i) - BR3[0][0]) > 3.5) cols.push([vx(i), NGZ]);           // not on the 3F bridge, not in the grand stair
+    cols.push([vx(i), SGZ]);
+  }
+  for (let i = 0; i <= ROOF_N; i++) cols.push([vx(i), BZ]);
+  const cG = cylUV(new THREE.CylinderGeometry(RCOL_R, RCOL_R*1.08, V, 18), RCOL_R, V); cG.translate(0, V/2, 0);
+  const capG = mergeGeometries([[1,1],[1,-1],[-1,1],[-1,-1]].map(([a, c]) => barGeo([0, V - 1.6, 0], [a*1.6, V, c*1.6], 0.1)), false);  // branching arms at the top
+  const cIM = new THREE.InstancedMesh(cG, MAT.concrete, cols.length), kIM = new THREE.InstancedMesh(capG, MAT.steel, cols.length);
+  cols.forEach(([x, z], i) => { T.makeTranslation(x, 0, z); cIM.setMatrixAt(i, T); kIM.setMatrixAt(i, T); col(circlePts(x, z, RCOL_R, 10), 0, V); });
+  cIM.castShadow = cIM.receiveShadow = kIM.castShadow = true;
+  scene.add(cIM, kIM); ROOF_INST.push(cIM, kIM);
 }
 
 // ---------- entrance canopy outside the main doors (street level) ----------
+// Large flat teal-glass canopy on a steel frame, carried by four square concrete columns; the 活動中心 sign is a narrow band
+// on the beam over the doors. The canopy is a camera occluder, so the camera stays under it.
+const CAN_Y = L[2] + 5.6, CAN_S = 11, CAN_N = [0.3, 10.5];
 {
-  const ch = L[2] + 6.5, P = (s, n) => [CM[0] + CU[0]*s + CN[0]*n, CM[1] + CU[1]*s + CN[1]*n];
-  for (const s of [-5, 5]) pillar(...P(s, 7.5), L[2], ch, 0.6);
-  put(prismGeo([P(-6.5, 0.2), P(6.5, 0.2), P(6.5, 8.5), P(-6.5, 8.5)], ch, ch + 0.12), 'roofGlass', false);
-  for (let s = -6.5; s <= 6.51; s += 1.625) bar([...P(s, 0.2).slice(0, 1), ch, P(s, 0.2)[1]], [P(s, 8.5)[0], ch, P(s, 8.5)[1]], 0.1, 'steel');
+  const P = (s, n) => [CM[0] + CU[0]*s + CN[0]*n, CM[1] + CU[1]*s + CN[1]*n], [n0, n1] = CAN_N, y = CAN_Y;
+  const quad = (s0, s1, a, b) => [P(s0, a), P(s1, a), P(s1, b), P(s0, b)];
+  put(prismGeo(quad(-CAN_S, CAN_S, n0, n1), y, y + 0.05), 'canopyGlass', false);
+  col(quad(-CAN_S, CAN_S, n0, n1), y - 0.25, y + 0.15);                               // camera stops under the canopy
+  const Y = (h = 0) => y - 0.12 + h, B = (s0, n0_, s1, n1_, w, h) => { const a = P(s0, n0_), b = P(s1, n1_); bar([a[0], Y(), a[1]], [b[0], Y(), b[1]], w, 'steel', h); };
+  B(-CAN_S, n0, CAN_S, n0, 0.22, 0.32); B(-CAN_S, n1, CAN_S, n1, 0.3, 0.42);                   // perimeter channels (deep fascia at the front)
+  B(-CAN_S, n0, -CAN_S, n1, 0.22, 0.32); B(CAN_S, n0, CAN_S, n1, 0.22, 0.32);
+  for (let s = -CAN_S + 2.2; s < CAN_S - 0.1; s += 2.2) B(s, n0, s, n1, 0.1, 0.2);               // ribs
+  for (const n of [3.7, 7.1]) B(-CAN_S, n, CAN_S, n, 0.08, 0.12);                             // purlins
+  // tall square concrete columns
+  for (const [s, n] of [[-8.6, 9.4], [8.6, 9.4], [-4.8, 1.6], [4.8, 1.6]]) solid(quad(s - 0.45, s + 0.45, n - 0.45, n + 0.45), L[2], y - 0.12, 'concrete');
+  // beam over the doors with the narrow sign band
+  solid(quad(-5.25, 5.25, 1.25, 1.95), L[2] + 3.25, L[2] + 3.95, 'concrete');
+  const sp = P(0, 1.97); sign('活動中心', '', sp[0], L[2] + 3.6, sp[1], Math.atan2(CN[0], CN[1]), 2.9, 0.46, '#59605b', '#eef0ea');
 }
 
 // ---------- rooms ----------
@@ -1199,7 +1360,7 @@ for (const [z0, z1, xa, xb] of [[-BZ - 0.15, -BZ - 5, 9, P1[0]], [BZ + 0.15, BZ 
   scene.add(bush);   // bushes have no collider: hiding spots
 }
 
-const TRIS = flush();
+const TRIS = flush(); flushSigns();
 
 // =====================================================================================
 //  PLAYER
@@ -1238,7 +1399,8 @@ addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') 
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 let yaw = SPAWN_YAW, pitch = 0.28, dist = 6;            // camera behind the player, looking into the building
-const SENS_X = 0.0035, SENS_Y = 0.0028, PITCH_MIN = -0.35, PITCH_MAX = 1.25;
+const SENS_X = 0.0035, SENS_Y = 0.0028, PITCH_MIN = -1.05, PITCH_MAX = 1.25;   // camera can swing low enough to look up ~60°
+const CAM_FLOOR = 0.5, CAM_BACK = 0.25, CAM_MIN = 0.45;                        // camera stays ≥ CAM_FLOOR above the floor under it
 let mouseX = -1, locked = false, running = false, autoInput = null;
 const lockHint = document.getElementById('lock');
 function lockMouse(){ try { const p = canvas.requestPointerLock?.({unadjustedMovement:true}); p?.catch?.(() => { try { canvas.requestPointerLock(); } catch {} }); } catch {} }
@@ -1428,25 +1590,80 @@ function step(dt){
   o.scale.set(SC * (1 + (1 - sq) * 0.6), SC * sq, SC * (1 + (1 - sq) * 0.6));
   if (!air) o.position.y += Math.abs(Math.cos(player.phase)) * amp * 0.06;
 
-  // third-person camera: march back from the head and stop before any solid (walls, slabs, stairs)
+  // third-person camera: march back from the head and stop before any solid (walls, slabs, stairs). Each sample is first
+  // lifted to at least CAM_FLOOR above the floor under it (ray cast down with groundAt), so the camera slides along the
+  // floor instead of going under it; it then looks along the view direction (so looking up shows the roof, not the avatar).
+  // Signs, railings and glass have no camera collider (cam:false), so they never pull the camera in.
   camTarget.set(p.x, visY + 1.5, p.z);
   camDir.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch)).normalize();
+  const camAt = t => { const x = camTarget.x + camDir.x*t, z = camTarget.z + camDir.z*t, y = camTarget.y + camDir.y*t;
+    return [x, Math.max(y, groundAt(x, z, Math.max(y, camTarget.y - 1.5) + 0.3 - STEP) + CAM_FLOOR), z]; };
   let d = dist;
-  for (let t = 0.3; t < dist; t += 0.12){
-    if (solidAt(camTarget.x + camDir.x*t, camTarget.y + camDir.y*t, camTarget.z + camDir.z*t)){ d = Math.max(0.45, t - 0.25); break; }
-  }
-  camera.position.copy(camTarget).addScaledVector(camDir, d);
-  camera.lookAt(camTarget);
+  for (let t = 0.3; t < dist; t += 0.12){ if (solidAt(...camAt(t))){ d = Math.max(CAM_MIN, t - CAM_BACK); break; } }
+  camera.position.set(...camAt(d));
+  camera.lookAt(camera.position.x - camDir.x, camera.position.y - camDir.y, camera.position.z - camDir.z);
+  o.visible = d > 0.8;                                                              // hide the avatar when the camera is inside it
   stamBar.style.width = (player.stamina*100) + '%';
+}
+// ---------- screen-space ambient occlusion: N8AO pass → OutputPass (tone mapping + sRGB). WebGL only; ?noao turns it off ----------
+const AO_RADIUS = 2.5, AO_FALLOFF = 1.0, AO_INTENSITY = 5.0, AO_SAMPLES = +(Q.get('aos') || 8), AO_DENOISE = +(Q.get('aod') || 4);
+let composer = null, aoPass = null;
+if (!Q.has('noao') && !Q.has('gpu')){
+  try {
+    const [{ N8AOPass }, { EffectComposer }, { OutputPass }] = await Promise.all([
+      import('n8ao'), import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/OutputPass.js')]);
+    composer = new EffectComposer(renderer);
+    aoPass = new N8AOPass(scene, camera, innerWidth, innerHeight);
+    Object.assign(aoPass.configuration, {aoRadius:AO_RADIUS, distanceFalloff:AO_FALLOFF, intensity:AO_INTENSITY, aoSamples:AO_SAMPLES,
+      denoiseSamples:AO_DENOISE, denoiseRadius:12, halfRes:true, depthAwareUpsampling:true, gammaCorrection:false, color:new THREE.Color(0x1a1410)});
+    composer.addPass(aoPass); composer.addPass(new OutputPass());
+    if (Q.has('aoview')) aoPass.setDisplayMode('AO');                     // debug: show the AO buffer only
+  } catch (e){ console.warn('AO disabled', e); composer = null; }
 }
 function resize(){
   const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
   renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  composer?.setPixelRatio(renderer.getPixelRatio()); composer?.setSize(w, h);
 }
 addEventListener('resize', resize); resize();
 addEventListener('orientationchange', () => { for (const t of [100, 300, 700]) setTimeout(resize, t); });   // phones report the new size late
 window.visualViewport?.addEventListener('resize', resize);
 
+// ---------- F3 stats overlay: fps, frame time, draw calls, triangles, textures, programs (?stats shows it on load) ----------
+const statsEl = document.getElementById('stats');
+let statsOn = Q.has('stats'), statsT = 0, statsN = 0, statsMs = 0;
+statsEl.style.display = statsOn ? 'block' : 'none';
+addEventListener('keydown', e => { if (e.code === 'F3'){ e.preventDefault(); statsOn = !statsOn; statsEl.style.display = statsOn ? 'block' : 'none'; } });
+renderer.info.autoReset = false;                                     // count every pass of a frame (shadow, AO, output)
+function frameStats(){
+  const i = renderer.info;
+  return {calls:i.render.calls, tris:i.render.triangles, textures:i.memory.textures, geometries:i.memory.geometries, programs:i.programs?.length ?? 0};
+}
+function drawStats(dtReal){
+  statsT += dtReal; statsN++; statsMs += dtReal;
+  if (statsT < 0.5) return;
+  const st = frameStats(), fps = statsN / statsT;
+  statsEl.textContent = `${fps.toFixed(0)} fps  ${(1000*statsMs/statsN).toFixed(1)} ms\ndraw calls ${st.calls}\ntriangles  ${(st.tris/1000).toFixed(1)}k\ntextures   ${st.textures}\ngeometries ${st.geometries}\nprograms   ${st.programs}\npixel ratio ${renderer.getPixelRatio()}  ${backend}${composer ? ' + AO' : ''}`;
+  statsT = statsN = statsMs = 0;
+}
+// dynamic resolution: if frames stay slower than the 60 fps budget, step the pixel ratio down (PR_MAX → PR_MIN, never up again,
+// so it cannot oscillate). Turned off by ?pr= (fixed ratio, for benchmarks).
+const PR_MIN = 1.0, PR_STEP = 0.125, DYN_WINDOW = 1.5, DYN_SLOW_MS = 18.5;
+const dyn = {on: !Q.has('pr'), t: 0, n: 0, ms: 0, grace: 2};
+function dynamicResolution(ms){
+  if (!dyn.on || !running) return;
+  dyn.t += ms/1000; dyn.n++; dyn.ms += ms;
+  if (dyn.t < DYN_WINDOW) return;
+  const avg = dyn.ms / dyn.n; dyn.t = dyn.n = dyn.ms = 0;
+  if (dyn.grace > 0){ dyn.grace--; return; }                          // skip start-up / shader-compile hitches
+  const pr = renderer.getPixelRatio();
+  if (avg > DYN_SLOW_MS && pr > PR_MIN + 1e-3){
+    // cost ∝ pixels ∝ pr², so jump straight to the ratio that should fit 16.7 ms (rounded down to PR_STEP)
+    const want = Math.floor(pr * Math.sqrt(16.7 / avg) * 0.95 / PR_STEP) * PR_STEP;
+    renderer.setPixelRatio(Math.max(PR_MIN, Math.min(pr - PR_STEP, want))); resize();
+  }
+}
+let lastReal = performance.now();
 let frame = 0, fpsT = 0, fpsN = 0, lastFloor = -1, lastPlace = '';
 function loop(){
   const dt = Math.min(0.05, clock.getDelta());
@@ -1457,7 +1674,9 @@ function loop(){
     if (name !== lastPlace){ placeEl.textContent = name; lastPlace = name; }
   }
   drawMini(lastFloor < 0 ? 2 : Math.min(3, lastFloor));
-  renderer.render(scene, camera);
+  renderer.info.reset();
+  if (composer) composer.render(); else renderer.render(scene, camera);
+  { const now = performance.now(); if (statsOn) drawStats((now - lastReal)/1000); if (bench) benchFrame(now - lastReal); dynamicResolution(now - lastReal); lastReal = now; }
   fpsN++; fpsT += dt;
   if (fpsT > 1){ info.textContent = `${backend} · ${Math.round(fpsN / fpsT)} fps · ${Math.round(TRIS/1000)}k tris`; fpsT = 0; fpsN = 0; }
 }
@@ -1561,6 +1780,30 @@ function runTests(){
   player.pos.set(...SPAWN);
 }
 if (Q.has('test')) runTests();
+
+// ---------- ?bench=x,y,z,yaw,pitch,dist: 6 s warm-up spin (dynamic resolution settles), then 6 s measured spin; reports fps / frame times / draw calls ----------
+let bench = null;
+function benchFrame(ms){
+  bench.t += ms;
+  const W0 = 6000;
+  if (bench.t < W0){ yaw = bench.yaw0 + TAU * bench.t / W0; return; }
+  bench.ms.push(ms); yaw = bench.yaw0 + TAU * Math.min(1, (bench.t - W0) / 6000);
+  const st = frameStats(); bench.calls = Math.max(bench.calls, st.calls); bench.tris = Math.max(bench.tris, st.tris); bench.tex = st.textures;
+  if (bench.t < W0 + 6000) return;
+  const a = bench.ms.slice().sort((x, y) => x - y), avg = a.reduce((x, y) => x + y, 0) / a.length;
+  const gl = renderer.getContext?.(), dbg = gl?.getExtension?.('WEBGL_debug_renderer_info');
+  const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '?';
+  const out = `BENCH ${innerWidth}x${innerHeight} @${renderer.getPixelRatio()} ${composer ? '+AO' : 'noAO'} gpu=${gpu}\n` +
+    `frames ${a.length}  avg ${(1000/avg).toFixed(1)} fps (${avg.toFixed(2)} ms)  p50 ${a[a.length >> 1].toFixed(2)} ms  p95 ${a[Math.floor(a.length*0.95)].toFixed(2)} ms\n` +
+    `max draw calls ${bench.calls}  max triangles ${(bench.tris/1000).toFixed(1)}k  textures ${bench.tex}`;
+  const el = document.getElementById('testout'); el.textContent = out; el.style.display = 'block'; console.log(out);
+  bench = null;
+}
+if (Q.has('bench')){
+  const [x, y, z, yw, pt, ds] = Q.get('bench').split(',').map(Number);
+  start(); player.pos.set(x, y, z); yaw = yw; pitch = pt; dist = ds; player.heading = yaw + Math.PI;
+  bench = {t:0, ms:[], yaw0:yw, calls:0, tris:0, tex:0};
+}
 </script>
 </body>
 </html>
