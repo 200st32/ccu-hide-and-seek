@@ -63,9 +63,23 @@ the official floor map) + Kai's description. Standalone page (index.html links t
 - Doors (`DOORS`, `addDoor`): every non-glass room door and stairwell door has a hinged wooden leaf (instanced), closed at start.
   Near one, a 開門/關門 button appears; E or tap toggles it. Closed = thin collider (`c.off` switches colliders off when open,
   checked by groundAt/ceilingAt/pushOut/solidAt). `?test` and `?doors=open` start with every door open.
-- Store details are instanced props (`prop()` → one InstancedMesh per shape, colour per item, no colliders/shadows): books in
-  麗文 + club bookshelves (`bookRow`), FamilyMart drinks/snacks/noodles + tills + coffee machine, cosmetics bottles/boxes,
-  post-office parcels, P.O. box doors, mail trays. Club rooms: CC0 Poly Haven table + plastic chairs (`FURN`, `loadFurniture`).
+- Store details are instanced props: `prop(kind, x, y, z, sx, sy, sz, colour, rotY, tile, tilt, glow)`, kinds box/cyl/cup/tri/ball/rod,
+  no colliders/shadows. `tile` = packaging label from a procedural canvas atlas (`tile()` / `TL.<name>()`: snack bags, noodle cups,
+  drink labels, bento, rice balls, skincare boxes, palettes, sheet masks, notebooks, laptop screens …; made-up brands only), offset per
+  instance in the shader (WebGL only; `?gpu` shows plain colours). One InstancedMesh per (kind, 16 m cell, floor); `cullProps()` hides
+  cells beyond `PROP_FAR` (34 m) or > 7 m above/below the camera. Club furniture (CC0 Poly Haven table + chairs, `FURN`) uses the same
+  cells and casts no shadows (the 3.3k-tri chair was 2 M tris/frame before culling).
+  - FamilyMart (from Kai's photos in `student_activity_center/family mart/`): lime-green walls, open chilled case (bento, rice balls,
+    sandwiches, milk), glass-door drink fridges, bread rack, snack gondolas, wood-top counter with tea eggs / sweet potatoes / hot-dog
+    roller / pastry warmer + tills, microwaves + coffee machine + cigarette shelf behind, ice-cream freezer, promo rack, FamiPort,
+    Let's Café window band, gashapon machines on the gallery outside.
+  - 美妝小舖: skincare/makeup wall shelves (boxes, pump bottles, jars, tubes, perfume, sheet masks), tester gondolas (lipsticks,
+    palettes, blush, nail polish, mirrors), till.
+  - 麗文 2F (photos in `student_activity_center/麗文/`): 國立中正大學書局 sign, Apple corner (laptops on two light-wood tables, all-in-one
+    desktops on the east wall counter, product boxes), stationery gondolas, 中正 souvenirs, books on the west wall under a blue wall.
+- Restrooms (`restroom(f)`, `WC`) on every floor right across corridor 2 from the square stair: shallow open entrance (water
+  dispenser), 男 doorway on the left (west), 女 on the right; cubicles with doors (`addDoor(..., {open:true, color})`, E toggles),
+  urinals, sinks + mirror.
 - Player model: rigged CC0 Quaternius character, male or female (start-screen choice, remembered in localStorage, `?char=m|f`),
   drawn at `CHAR_SCALE` = 1.2× real size and slimmed in the vertex shader (`SLIM`: vertices pulled toward bone axes) (visual only: collision stays person-sized), (`web/models/`, packed by `tools/pack_character.py`, credits in `CREDITS.md`),
   loaded in the background by GLTFLoader (the box character is the fallback, e.g. under `file://` or `?boxman`). Clothes are
@@ -88,7 +102,7 @@ the official floor map) + Kai's description. Standalone page (index.html links t
   - Performance: pixel ratio cap 1.5 + dynamic resolution (drops once, floor 1.0, if frames > 18.5 ms); one shadow
     light with a tight shadow camera fitted to `SHADOW_BOX`, 2048 map. Measured on Kai's MacBook (Intel Iris Plus),
     1280×760: ≥ 60 fps with AO, ~120 draw calls (settles at pixel ratio 1.0; ~32–39 fps at a fixed 1.5).
-- Debug: `?test` walks 52 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
+- Debug: `?test` walks 55 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
   `?shot=x,y,z,yaw,pitch,dist[&nohud]` places player/camera for screenshots. Headless Chrome works with `file://`
   + `--allow-file-access-from-files --use-angle=swiftshader --enable-unsafe-swiftshader`.
   F3 / `?stats` = stats overlay (fps, draw calls, triangles, textures). `?bench=x,y,z,yaw,pitch,dist` = 6 s warm-up +

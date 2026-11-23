@@ -301,7 +301,8 @@ const MAT = {
   metal: mat(0xa9b0b5, {metalness:.3, roughness:.5}), bed: mat(0xf4f4f2), curtain: mat(0xa9d3e0), box: mat(0xc49a63),
   plant: mat(0x3f8a3c, {flatShading:true}), fridge: mat(0xdde6ea, {roughness:.25}), counter: mat(0xe9e4da), mirror: mat(0xcfe3ea, {roughness:.05, metalness:.6}),
   curtainR: mat(0x8c1f2a), postR: mat(0xc42f2a, {roughness:.4}), postG: mat(0x2e8a45, {roughness:.4}), poBox: mat(0xb9a77a, {metalness:.4, roughness:.4}),
-  cosmA: mat(0xe7799f), cosmB: mat(0xf3c8b6), cosmC: mat(0xa98bd6), cosmD: mat(0xf7f2ec), screen: mat(0x26292d), lib: mat(0x3ea04a), fmB: mat(0x2b6cb0), fmG: mat(0x2f9e5a),
+  cosmA: mat(0xe7799f), cosmB: mat(0xf3c8b6), cosmC: mat(0xa98bd6), cosmD: mat(0xf7f2ec), screen: mat(0x26292d), lib: mat(0x3ea04a), fmB: mat(0x2b6cb0), fmG: mat(0x2f9e5a), fmLime: mat(0x8cc63f), maple: mat(0xdcc29a, {roughness:.6}), kidsBlue: mat(0x5bc0d8),
+  tileW: mat(0xeef2f4, {roughness:.35}), stall: mat(0x8fa9bd, {roughness:.5}), porcelain: mat(0xffffff, {roughness:.15}),
   rail: mat(0x3b7a56, {roughness:.5, metalness:.3}),
   railP: mat(0xffffff, {map:T_RAIL, alphaTest:.5, side:THREE.DoubleSide, roughness:.5}),
   steel: mat(0x939ca3, {roughness:.45, metalness:.5}),
@@ -643,7 +644,7 @@ const split = n => { const i = n.indexOf(' '); return i < 0 ? [n, ''] : [n.slice
 const zones = [];
 const mapLayers = [[], [], [], []];
 const MAPC = {food2:'#f5d76e', band:'#9fc3e0', walk:'#e9e3d7', pave:'#cfc4b6', club:'#9fc3e0', office:'#c9b8e6', book:'#7cc47f', mart:'#6fc0a8', health:'#f2a0a0', counsel:'#f6c58f',
-              food:'#f5d76e', theatre:'#d98a94', stair:'#f0a830', big:'#b5e0d0', passage:'#e9e3d7', lobby:'#efd9b5', bridge:'#e9e3d7', road:'#55595e'};
+              food:'#f5d76e', theatre:'#d98a94', stair:'#f0a830', big:'#b5e0d0', wc:'#bcd9e6', passage:'#e9e3d7', lobby:'#efd9b5', bridge:'#e9e3d7', road:'#55595e'};
 function mapAdd(f, pts, k, holes){ if (f >= 0 && f < 4) mapLayers[f].push({pts, k, holes}); }
 function zone(n, f, x0, z0, x1, z1, k, lo, hi){
   zones.push({n, lo: lo ?? L[f] - 0.6, hi: hi ?? L[f] + 3.4, x0: Math.min(x0,x1), z0: Math.min(z0,z1), x1: Math.max(x0,x1), z1: Math.max(z0,z1)});
@@ -683,22 +684,174 @@ const FA0 = A_IN - Math.PI/2, FAD = 1.19, FA1 = 2.53, FA2 = A_IN + Math.PI/2;   
 const fanAt = (r, a) => [FC[0] + r*Math.cos(a), FC[1] + r*Math.sin(a)];
 const fanR = (x, z) => Math.hypot(x - FC[0], z - FC[1]);
 const fanA = (x, z) => { let a = Math.atan2(z - FC[1], x - FC[0]); if (a < FA0 - 0.5) a += TAU; return a; };
-// ---------- small props (books, groceries, drinks, cosmetics, parcels, letters): instanced boxes / cylinders, colour per item ----------
-// prop(kind, x, yBottom, z, sizeX, sizeY, sizeZ, colour, rotY). No colliders and no shadows (too small to matter, keeps it cheap).
-const PROPS = {box: [], cyl: []};
+// ---------- small props (books, groceries, drinks, cosmetics, gadgets, parcels): instanced shapes, colour + packaging label per item ----------
+// prop(kind, x, yBottom, z, sizeX, sizeY, sizeZ, colour, rotY, tile, tilt, glow). No colliders and no shadows (too small to matter).
+// kind: box | cyl | cup (wider top) | tri (triangular prism, apex up, e.g. rice balls) | ball | rod (cylinder lying along x).
+// tile: a packaging label from the procedural atlas below (TL.<name>() picks a variant; 0 = plain), multiplied by the colour.
+// tilt: rotation about the item's own x axis (laptop screens, tills); glow: self-lit amount (screens, fridge lights).
+// One InstancedMesh per (kind, 16 m cell, floor): cells are frustum-culled and hidden beyond PROP_FAR (also the club furniture).
+const PROPS = {box: [], cyl: [], cup: [], tri: [], ball: [], rod: []};
+const PCELL = 16, PROP_FAR = 34, PROP_GROUPS = [];
 // model furniture (CC0 Poly Haven, web/models/table.glb + chair.glb): placements [x, y, z, rotY], instanced once the models load
 const FURN = {table: [], chair: []};
-const prop = (kind, x, y, z, sx, sy, sz, color, rotY = 0) => PROPS[kind].push([x, y, z, sx, sy, sz, color, rotY]);
+const prop = (kind, x, y, z, sx, sy, sz, color, rotY = 0, tile = 0, tilt = 0, glow = 0) => PROPS[kind].push([x, y, z, sx, sy, sz, color, rotY, tile, tilt, glow]);
+// --- packaging-label atlas: 16 × 8 tiles of 128 px, drawn with canvas 2D (no images, no real brand marks) ---
+const PT_COLS = 16, PT_ROWS = 8, PT_S = 128, TL = {};
+const ptCanvas = document.createElement('canvas'); ptCanvas.width = PT_COLS*PT_S; ptCanvas.height = PT_ROWS*PT_S;
+let ptN = 0;
+function tile(name, draw){
+  const i = ptN++, g = ptCanvas.getContext('2d'), x = (i % PT_COLS)*PT_S, y = Math.floor(i / PT_COLS)*PT_S;
+  g.save(); g.beginPath(); g.rect(x, y, PT_S, PT_S); g.clip(); g.translate(x, y); draw(g, PT_S); g.restore();
+  (TL[name] ??= Object.assign(() => TL[name].ids[Math.floor(rand()*TL[name].ids.length)], {ids: []})).ids.push(i);
+}
+{
+  const txt = (g, t, x, y, size, color, weight = 800, maxW = PT_S*0.9) => {
+    let s = size; do { g.font = `${weight} ${s}px "Noto Sans TC", "PingFang TC", sans-serif`; s -= 2; } while (g.measureText(t).width > maxW && s > 8);
+    g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(t, x, y);
+  };
+  const fill = (g, c, x = 0, y = 0, w = PT_S, h = PT_S) => { g.fillStyle = c; g.fillRect(x, y, w, h); };
+  const ell = (g, c, x, y, rx, ry) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, TAU); g.fill(); };
+  const rr = (g, c, x, y, w, h, r) => { g.fillStyle = c; g.beginPath(); g.roundRect(x, y, w, h, r); g.fill(); };
+  const grad = (g, a, b, vertical = true) => { const q = vertical ? g.createLinearGradient(0, 0, 0, PT_S) : g.createLinearGradient(0, 0, PT_S, 0); q.addColorStop(0, a); q.addColorStop(1, b); g.fillStyle = q; g.fillRect(0, 0, PT_S, PT_S); };
+  tile('plain', g => fill(g, '#fff'));
+  // --- convenience store ---
+  for (const [bg, fg, name, win, chip] of [['#d32f2f', '#ffe082', '洋芋片', '#fff3c4', '#f2c14e'], ['#1565c0', '#fff', '玉米脆片', '#ffe082', '#e9a93a'],
+      ['#2e7d32', '#fff', '海苔', '#dcedc8', '#2f4f2f'], ['#ef6c00', '#4e2600', '蘇打餅', '#ffe0b2', '#d9a35a'], ['#6a1b9a', '#fff', '巧克力', '#f8bbd0', '#5d3a1a'],
+      ['#fbc02d', '#b71c1c', '蝦味餅', '#fff8e1', '#f28c5a']])
+    tile('snack', (g, s) => {
+      fill(g, bg); fill(g, 'rgba(255,255,255,.22)', 0, 0, s, 10); fill(g, 'rgba(255,255,255,.22)', 0, s - 10, s, 10);
+      for (let x = 0; x < s; x += 6){ fill(g, 'rgba(0,0,0,.18)', x, 0, 2, 10); fill(g, 'rgba(0,0,0,.18)', x, s - 10, 2, 10); }
+      ell(g, win, s/2, s*0.64, s*0.36, s*0.22);
+      for (let k = 0; k < 9; k++) ell(g, chip, s*(0.26 + (k % 5)*0.12), s*(0.58 + Math.floor(k/5)*0.12), s*0.07, s*0.045);
+      txt(g, name, s/2, s*0.3, s*0.24, fg);
+      fill(g, 'rgba(255,255,255,.18)', s*0.08, 12, s*0.08, s - 24);                            // plastic sheen
+    });
+  for (const [bg, name] of [['#c62828', '牛肉麵'], ['#e65100', '泡菜鍋'], ['#00695c', '海鮮麵']])
+    tile('noodle', (g, s) => {
+      fill(g, '#f5f0e6'); fill(g, bg, 0, s*0.12, s, s*0.6);
+      ell(g, '#5d3a1a', s/2, s*0.5, s*0.3, s*0.14); for (let k = 0; k < 5; k++) ell(g, '#f1d38a', s*(0.32 + k*0.09), s*0.48, s*0.05, s*0.03);
+      txt(g, name, s/2, s*0.24, s*0.17, '#fff'); fill(g, '#222', 0, s*0.85, s, s*0.04);
+    });
+  for (const [liq, band, fg, name] of [['#a8c96a', '#f4f8ec', '#2e7d32', '綠茶'], ['#c9a27a', '#fff3e0', '#6d4c41', '奶茶'], ['#2b140d', '#d32f2f', '#fff', 'COLA'],
+      ['#dceefa', '#1e88e5', '#fff', '礦泉水'], ['#3e2723', '#efe3cf', '#3e2723', '咖啡'], ['#ff9800', '#fffde7', '#e65100', '柳橙汁']])
+    tile('drink', (g, s) => { fill(g, liq); fill(g, band, 0, s*0.38, s, s*0.34); txt(g, name, s/2, s*0.55, s*0.2, fg); fill(g, 'rgba(255,255,255,.3)', s*0.15, 0, s*0.06, s); });
+  for (const [bg, fg, name] of [['#1565c0', '#fff', '汽水'], ['#b71c1c', '#fff', 'COLA'], ['#5d4037', '#ffe0b2', '咖啡'], ['#2e7d32', '#fff', '麥茶']])
+    tile('can', (g, s) => { grad(g, '#cfd8dc', '#90a4ae'); fill(g, bg, 0, s*0.12, s, s*0.76); fill(g, 'rgba(255,255,255,.35)', 0, s*0.3, s, s*0.05); txt(g, name, s/2, s*0.55, s*0.22, fg); });
+  for (const [label, crumb] of [['吐司', '#e8c48c'], ['菠蘿', '#e0a952'], ['奶酥', '#edd29a'], ['肉鬆', '#d9a066']])
+    tile('bread', (g, s) => {
+      fill(g, crumb); for (let k = 0; k < 40; k++) ell(g, 'rgba(255,240,210,.6)', rand()*s, rand()*s, 3, 2);
+      fill(g, 'rgba(255,255,255,.28)', 0, 0, s, s*0.18); rr(g, '#fff', s*0.2, s*0.36, s*0.6, s*0.3, 8);
+      txt(g, label, s/2, s*0.46, s*0.16, '#c62828'); txt(g, '35元', s/2, s*0.6, s*0.09, '#333', 600);
+    });
+  for (const meat of ['#7b3f1d', '#b5562b', '#d98c5f'])
+    tile('bento', (g, s) => {
+      fill(g, '#1d1d1d'); fill(g, '#fafafa', 6, 6, s*0.5, s*0.7);
+      for (let k = 0; k < 14; k++) ell(g, '#222', 12 + rand()*s*0.44, 12 + rand()*s*0.6, 1.5, 1);
+      ell(g, meat, s*0.76, s*0.25, s*0.17, s*0.12); ell(g, '#f6c445', s*0.72, s*0.55, s*0.09, s*0.07); ell(g, '#3f8a3c', s*0.88, s*0.58, s*0.07, s*0.07);
+      fill(g, '#f3d34a', s*0.62, s*0.68, s*0.3, s*0.06); fill(g, '#fff', 0, s*0.8, s, s*0.2); txt(g, '雞腿便當 89元', s/2, s*0.9, s*0.1, '#c62828');
+    });
+  for (const [band, name] of [['#d32f2f', '鮪魚'], ['#2e7d32', '昆布'], ['#ef6c00', '鮭魚']])
+    tile('onigiri', (g, s) => { fill(g, '#f7f7f2'); fill(g, '#1f2a1d', 0, s*0.52, s, s*0.48); fill(g, band, s*0.44, 0, s*0.12, s); rr(g, '#fff', s*0.25, s*0.18, s*0.5, s*0.2, 6); txt(g, name, s/2, s*0.28, s*0.13, band); });
+  tile('sandwich', (g, s) => { fill(g, '#d9a55a'); fill(g, '#fbf3dc', 0, s*0.08, s, s*0.84); fill(g, '#f4c430', 0, s*0.38, s, s*0.1); fill(g, '#7cb342', 0, s*0.48, s, s*0.06); fill(g, '#f4a7a3', 0, s*0.54, s, s*0.08); });
+  tile('milk', (g, s) => { fill(g, '#fff'); fill(g, '#1e63b5', 0, 0, s, s*0.3); for (let k = 0; k < 5; k++) ell(g, '#222', 20 + k*22, s*0.82, 7, 5); txt(g, '鮮乳', s/2, s*0.55, s*0.26, '#1e63b5'); });
+  for (const [bg, sc] of [['#f8bbd0', '#fff59d'], ['#b3e5fc', '#f48fb1']])
+    tile('icecream', (g, s) => { fill(g, bg); ell(g, sc, s*0.5, s*0.42, s*0.22, s*0.18); ell(g, '#d7a86e', s*0.5, s*0.66, s*0.1, s*0.12); txt(g, '冰淇淋', s/2, s*0.86, s*0.15, '#ad1457'); });
+  for (const [bg, fg, name] of [['#ffcc80', '#6d4c41', '奶油餅乾'], ['#4e342e', '#ffd54f', '可可派'], ['#e1f5fe', '#0277bd', '蘇打夾心']])
+    tile('biscuit', (g, s) => { fill(g, bg); for (let k = 0; k < 3; k++) ell(g, '#d9a35a', s*(0.3 + k*0.2), s*0.66, s*0.09, s*0.09); txt(g, name, s/2, s*0.3, s*0.17, fg); });
+  tile('microwave', (g, s) => {
+    fill(g, '#eceff1'); rr(g, '#16191c', 8, 14, s*0.62, s - 28, 6); fill(g, 'rgba(255,255,255,.12)', 14, 18, s*0.2, s - 36);
+    fill(g, '#cfd8dc', s*0.76, 14, s*0.2, s - 28); fill(g, '#2e7d32', s*0.79, 20, s*0.14, 12);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) fill(g, '#90a4ae', s*0.79 + c*s*0.08, 42 + r*16, s*0.06, 10);
+  });
+  tile('gacha', (g, s) => {
+    grad(g, '#fff8e1', '#e1f5fe'); for (let k = 0; k < 7; k++) ell(g, ['#ef5350', '#42a5f5', '#66bb6a', '#ffca28', '#ab47bc'][k % 5], 18 + rand()*(s - 36), 30 + rand()*(s - 60), 12, 12);
+    fill(g, '#e53935', 0, 0, s, 22); txt(g, '扭蛋 GACHA', s/2, 11, 16, '#fff'); txt(g, 'NT$60', s/2, s - 14, 18, '#1a237e');
+  });
+  tile('kiosk', (g, s) => { grad(g, '#e3f2fd', '#bbdefb'); fill(g, '#2f9e5a', 0, 0, s, 22); for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) rr(g, ['#42a5f5', '#66bb6a', '#ffa726'][(r + c) % 3], 12 + c*38, 32 + r*30, 30, 24, 4); });
+  tile('till', (g, s) => { fill(g, '#0d1b2a'); fill(g, '#1e88e5', 0, 0, s, 18); for (let r = 0; r < 6; r++){ fill(g, '#cfd8dc', 10, 28 + r*14, s*0.55, 6); fill(g, '#ffd54f', s*0.72, 28 + r*14, s*0.2, 6); } });
+  // --- cosmetics (made-up brand names) ---
+  for (const [bg, fg, brand, sub] of [['#fdfbf7', '#b08d57', 'LUMIÈRE', 'hydrating cream'], ['#fce4ec', '#ad1457', 'ROSÉ', 'essence lotion'], ['#e8f5e9', '#2e7d32', 'AQUA 水潤', 'gel moisturizer'],
+      ['#ede7f6', '#4527a0', 'SÉRUM', 'night repair'], ['#fff3e0', '#e65100', 'SOLEIL', 'UV50 sunscreen']])
+    tile('skin', (g, s) => { fill(g, bg); fill(g, fg, 10, 10, s - 20, 3); fill(g, fg, 10, s - 13, s - 20, 3); txt(g, brand, s/2, s*0.44, s*0.2, fg, 700); txt(g, sub, s/2, s*0.64, s*0.1, '#666', 500); });
+  for (const [a, b, fg, t] of [['#ffffff', '#f8bbd0', '#ad1457', 'toner'], ['#ffffff', '#b3e5fc', '#01579b', 'lotion'], ['#fff8e1', '#ffe082', '#8d6e63', 'oil'], ['#f3e5f5', '#ce93d8', '#4a148c', 'serum']])
+    tile('bottle', (g, s) => { grad(g, a, b); rr(g, 'rgba(255,255,255,.85)', s*0.18, s*0.34, s*0.64, s*0.34, 6); txt(g, t, s/2, s*0.51, s*0.15, fg, 600); fill(g, 'rgba(255,255,255,.5)', s*0.1, 0, s*0.05, s); });
+  tile('palette', (g, s) => {
+    fill(g, '#1b1b1b'); const C = ['#f3d9c6', '#e7b9a0', '#c98b6b', '#9c5b43', '#f4c1c9', '#d98395', '#b45472', '#6e3b3b', '#e9d2a3', '#cfa85f', '#8f6a3e', '#4a3326'];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++){ fill(g, C[r*4 + c], 12 + c*27, 14 + r*34, 22, 28); fill(g, 'rgba(255,255,255,.18)', 12 + c*27, 14 + r*34, 22, 6); }
+  });
+  tile('blush', (g, s) => { fill(g, '#e9c6c2'); ell(g, '#2a2a2a', s/2, s/2, s*0.48, s*0.48); ell(g, '#e98c9a', s/2, s/2, s*0.36, s*0.36); ell(g, 'rgba(255,255,255,.25)', s*0.42, s*0.4, s*0.12, s*0.08); });
+  for (const [bg, fg, t] of [['#a5d6a7', '#1b5e20', '綠茶面膜'], ['#f8bbd0', '#880e4f', '玫瑰面膜'], ['#b3e5fc', '#01579b', '玻尿酸面膜']])
+    tile('mask', (g, s) => { grad(g, '#ffffff', bg); ell(g, 'rgba(255,255,255,.9)', s/2, s*0.42, s*0.24, s*0.3); ell(g, bg, s*0.4, s*0.36, 6, 3); ell(g, bg, s*0.6, s*0.36, 6, 3); ell(g, bg, s/2, s*0.56, 9, 3); txt(g, t, s/2, s*0.86, s*0.14, fg); });
+  tile('perfume', (g, s) => { grad(g, '#fde3c8', '#f3a683'); fill(g, 'rgba(255,255,255,.35)', s*0.12, 0, s*0.1, s); rr(g, '#fff', s*0.25, s*0.4, s*0.5, s*0.2, 3); txt(g, 'eau de parfum', s/2, s*0.5, s*0.08, '#8d6e63', 600); });
+  tile('tube', (g, s) => { fill(g, '#fff'); fill(g, '#ec407a', 0, s*0.18, s, s*0.12); txt(g, 'CLEANSING FOAM', s/2, s*0.55, s*0.1, '#ad1457', 700); fill(g, '#ec407a', 0, s*0.8, s, s*0.06); });
+  // --- books, stationery, school goods ---
+  for (const v of [0, 1, 2])
+    tile('spine', (g, s) => {
+      fill(g, '#fff'); fill(g, 'rgba(0,0,0,.28)', 0, s*(0.06 + v*0.03), s, s*0.05); fill(g, 'rgba(0,0,0,.28)', 0, s*0.86, s, s*0.05);
+      for (let k = 0; k < 4 + v; k++) fill(g, 'rgba(0,0,0,.5)', s*0.38, s*(0.2 + k*0.11), s*0.24, s*0.07);
+    });
+  for (const [bg, fg, t, lines] of [['#c8a46e', '#4e342e', 'NOTE', 1], ['#b3e5fc', '#01579b', 'NOTEBOOK', 0], ['#1f5d3a', '#fff', '國立中正大學', 0], ['#f8bbd0', '#880e4f', 'Campus', 1]])
+    tile('notebook', (g, s) => {
+      fill(g, bg); fill(g, 'rgba(0,0,0,.25)', 0, 0, 8, s);
+      if (lines) for (let y = 20; y < s; y += 12) fill(g, 'rgba(255,255,255,.35)', 14, y, s - 20, 2);
+      rr(g, 'rgba(255,255,255,.88)', s*0.2, s*0.36, s*0.68, s*0.24, 4); txt(g, t, s*0.54, s*0.48, s*0.13, fg, 700, s*0.62);
+    });
+  for (const bar of [['#1e88e5', '#e53935', '#212121', '#43a047'], ['#ec407a', '#ab47bc', '#26c6da', '#ffca28']])
+    tile('penpack', (g, s) => { fill(g, '#fff'); fill(g, '#1565c0', 0, 0, s, s*0.2); txt(g, '0.5 mm GEL PEN', s/2, s*0.1, 12, '#fff', 700); bar.forEach((c, k) => { fill(g, c, s*0.18 + k*s*0.18, s*0.28, 10, s*0.62); fill(g, '#eee', s*0.18 + k*s*0.18, s*0.28, 10, 12); }); });
+  // --- computers (laptops / desktops / tablets) ---
+  for (const [a, b] of [['#4a2c8f', '#e05a8a'], ['#0b5ed7', '#5ec8f0'], ['#f08a24', '#d7263d'], ['#1f7a5a', '#a8e063']])
+    tile('screen', (g, s) => {
+      grad(g, a, b); for (let k = 0; k < 3; k++){ g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = 6; g.beginPath(); g.moveTo(0, s*(0.3 + k*0.18)); g.bezierCurveTo(s*0.3, s*(0.1 + k*0.2), s*0.7, s*(0.6 + k*0.1), s, s*(0.35 + k*0.15)); g.stroke(); }
+      fill(g, 'rgba(255,255,255,.75)', 0, 0, s, 6); rr(g, 'rgba(255,255,255,.4)', s*0.18, s*0.84, s*0.64, s*0.1, 5);
+      for (let k = 0; k < 8; k++) rr(g, ['#ff5252', '#ffd740', '#69f0ae', '#40c4ff', '#e040fb', '#fff'][k % 6], s*0.2 + k*s*0.077, s*0.855, s*0.06, s*0.06, 3);
+    });
+  tile('tablet', (g, s) => { grad(g, '#ff9a8b', '#6a82fb'); for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) rr(g, ['#fff', '#ffd740', '#69f0ae', '#40c4ff', '#ff5252'][(r*4 + c) % 5], 14 + c*28, 14 + r*28, 18, 18, 5); });
+  tile('kbd', (g, s) => { fill(g, '#c9ccd1'); fill(g, '#2b2d30', 10, 8, s - 20, s*0.5); for (let r = 0; r < 5; r++) for (let c = 0; c < 12; c++) fill(g, '#55585c', 12 + c*8.8, 10 + r*12, 7, 9); rr(g, '#b9bcc1', s*0.3, s*0.66, s*0.4, s*0.28, 4); });
+  for (const t of ['MacBook Air', 'iPad', 'iMac'])
+    tile('pbox', (g, s) => { fill(g, '#fafafa'); rr(g, '#d5d8dc', s*0.18, s*0.3, s*0.64, s*0.36, 6); fill(g, '#9aa0a6', s*0.24, s*0.36, s*0.52, s*0.24); txt(g, t, s/2, s*0.82, s*0.12, '#333', 600); });
+}
+// geometries for the prop kinds (bottom at y = 0, 1 × 1 × 1 box)
+function propGeo(k){
+  if (k === 'box') return new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
+  if (k === 'cyl') return new THREE.CylinderGeometry(0.5, 0.5, 1, 8).translate(0, 0.5, 0);
+  if (k === 'cup') return new THREE.CylinderGeometry(0.5, 0.38, 1, 8).translate(0, 0.5, 0);
+  if (k === 'ball') return new THREE.SphereGeometry(0.5, 8, 6).translate(0, 0.5, 0);
+  if (k === 'rod') return new THREE.CylinderGeometry(0.5, 0.5, 1, 8).rotateZ(Math.PI/2).translate(0, 0.5, 0);
+  const g = new THREE.CylinderGeometry(0.5, 0.5, 1, 3).rotateX(-Math.PI/2);                  // tri: apex up, triangle faces ±z
+  g.computeBoundingBox(); const b = g.boundingBox;
+  return g.translate(-(b.min.x + b.max.x)/2, -b.min.y, 0).scale(1/(b.max.x - b.min.x), 1/(b.max.y - b.min.y), 1);
+}
 function flushProps(){
-  const geo = {box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 10).translate(0, 0.5, 0)};
-  const M = new THREE.Matrix4(), QQ = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
+  const M = new THREE.Matrix4(), QQ = new THREE.Quaternion(), E = new THREE.Euler(0, 0, 0, 'YXZ'), P = new THREE.Vector3(), S = new THREE.Vector3(), C = new THREE.Color();
+  const shader = !Q.has('gpu');                                       // the WebGPU build ignores onBeforeCompile: plain colours there
+  const tex = new THREE.CanvasTexture(ptCanvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const m = mat(0xffffff, {roughness:.5, ...(shader ? {map:tex} : {})});
+  if (shader) m.onBeforeCompile = sh => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec2 aTile;\nattribute float aGlow;\nvarying float vGlow;')
+      .replace('#include <uv_vertex>', `#include <uv_vertex>\n  vMapUv = aTile + (0.03 + uv*0.94) * vec2(${1/PT_COLS}, ${1/PT_ROWS});\n  vGlow = aGlow;`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGlow;')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += diffuseColor.rgb * vGlow;');
+  };
   for (const [k, list] of Object.entries(PROPS)){
     if (!list.length) continue;
-    const im = new THREE.InstancedMesh(geo[k], mat(0xffffff, {roughness:.55}), list.length);
-    list.forEach(([x, y, z, sx, sy, sz, c, r], i) => { im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromAxisAngle(UP, r), S.set(sx, sy, sz))); im.setColorAt(i, C.set(c)); });
-    im.receiveShadow = true; scene.add(im);
+    const geo = propGeo(k), cells = new Map();
+    for (const it of list){ const key = Math.floor(it[0]/PCELL) + ',' + Math.floor(it[2]/PCELL) + ',' + Math.floor((it[1] + 0.5)/H); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(it); }
+    for (const [key, items] of cells){
+      const im = new THREE.InstancedMesh(geo, m, items.length), tA = new Float32Array(items.length*2), gA = new Float32Array(items.length);
+      items.forEach(([x, y, z, sx, sy, sz, c, r, t, tilt, glow], i) => {
+        im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromEuler(E.set(tilt, r, 0)), S.set(sx, sy, sz))); im.setColorAt(i, C.set(c));
+        tA[i*2] = (t % PT_COLS)/PT_COLS; tA[i*2 + 1] = 1 - (Math.floor(t/PT_COLS) + 1)/PT_ROWS; gA[i] = glow;
+      });
+      const g2 = geo.clone(); g2.setAttribute('aTile', new THREE.InstancedBufferAttribute(tA, 2)); g2.setAttribute('aGlow', new THREE.InstancedBufferAttribute(gA, 1));
+      im.geometry = g2; im.computeBoundingSphere(); im.receiveShadow = true; scene.add(im);
+      const [cx, cz, fl] = key.split(',').map(Number); PROP_GROUPS.push({im, x:(cx + 0.5)*PCELL, z:(cz + 0.5)*PCELL, y:fl*H + 1.5});
+    }
   }
 }
+// hide prop cells far from the camera, or more than ~2 floors above / below it (small items are invisible there anyway)
+function cullProps(){ const c = camera.position; for (const G of PROP_GROUPS) G.im.visible = Math.abs(c.y - G.y) < 7 && Math.hypot(c.x - G.x, c.z - G.z) < PROP_FAR + PCELL*0.71; }
 // pick from a palette with the seeded random
 const pick = a => a[Math.floor(rand()*a.length)];
 const COSM_C = [0xe7799f, 0xf3c8b6, 0xa98bd6, 0xf7f2ec, 0xd9405f, 0xf0a3b8, 0x2b2b2b, 0xe8c07a, 0x9fd3c7, 0xc85a7c];
@@ -708,7 +861,7 @@ function bookRow(ax, az, bx, bz, y, nx, nz, maxH = 0.3){
   const l = Math.hypot(bx - ax, bz - az), ux = (bx - ax)/l, uz = (bz - az)/l, r = Math.atan2(-uz, ux);
   for (let s = 0.03; s < l - 0.05; ){
     const w = 0.025 + rand()*0.035, h = maxH*(0.65 + rand()*0.35);
-    if (rand() > 0.07) prop('box', ax + ux*(s + w/2) + nx*0.02, y, az + uz*(s + w/2) + nz*0.02, w, h, 0.16, pick(BOOK_C), r);
+    if (rand() > 0.07) prop('box', ax + ux*(s + w/2) + nx*0.02, y, az + uz*(s + w/2) + nz*0.02, w, h, 0.16, pick(BOOK_C), r, TL.spine());
     s += w + 0.004;
   }
 }
@@ -1027,7 +1180,7 @@ function furnish(s, w, d, P, y, doorU){
   const fb = (u0, v0, u1, v1, h, key, yb = 0) => { v1 = Math.min(v1, d - 0.15); if (v1 - v0 < 0.3) return; const [ax, az] = P(u0, v0), [bx, bz] = P(u1, v1); boxS(ax, az, bx, bz, y + yb, y + yb + h, key, {cam:false}); };
   const clear = (u0, u1, v0) => doorU.every(du => v0 > 2.6 || u1 < du - 1.2 || u0 > du + 1.2);
   const [o0, o1] = [P(0, 0), P(1, 0)], rotU = Math.atan2(-(o1[1] - o0[1]), o1[0] - o0[0]);          // rotY that lines local x up with u
-  const pr = (kind, u, v, yb, su, sh, sv, c) => { const [x, z] = P(u, v); prop(kind, x, y + yb, z, su, sh, sv, c, rotU); };
+  const pr = (kind, u, v, yb, su, sh, sv, c, t = 0, tilt = 0, glow = 0) => { const [x, z] = P(u, v); prop(kind, x, y + yb, z, su, sh, sv, c, rotU, t, tilt, glow); };
   const colL = (u0, v0, u1, v1, h) => col([P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v1)], y, y + h, {cam:false});
   // a model (table / chair) at (u, v) whose front (+z of the model) faces local direction (du, dv)
   const model = (k, u, v, du, dv) => { const [x, z] = P(u, v), [x2, z2] = P(u + du, v + dv); FURN[k].push([x, y, z, Math.atan2(x2 - x, z2 - z) + (k === 'chair' ? Math.PI : 0)]); };   // the chair model's seat faces -z
@@ -1073,28 +1226,67 @@ function furnish(s, w, d, P, y, doorU){
     fb(w - 2.6, 1.2, w - 0.4, 1.8, 1.0, 'wood');                                // customer writing desk
     fb(1.2, 0.9, 1.6, 1.3, 1.3, 'screen');                                      // queue-ticket machine
   } else if (s.k === 'beauty'){
-    const C = ['cosmA', 'cosmB', 'cosmC', 'cosmD'];
-    for (const [a, b] of [[0.12, 0.62], [w - 0.62, w - 0.12]]){                 // wall shelves, products on four levels
-      const back = a < 1 ? [a - 0.02, a + 0.1] : [b - 0.1, b + 0.02], [p0, p1] = a < 1 ? [a + 0.1, b] : [a, b - 0.1];
+    // products are grouped the way shops do it: a run of one product type per 0.5–0.8 m of shelf, two rows deep
+    const PAST = [0xf8bbd0, 0xffffff, 0xe1bee7, 0xb3e5fc, 0xfff3e0, 0xc8e6c9], GOLD = 0xd4af37, METAL = [GOLD, 0xc0c0c0, 0x1b1b1b, 0xb76e79];
+    const LIP = [0xb3123a, 0xd81b60, 0xe57373, 0x8e1b3a, 0xf06292, 0xc2185b, 0xa1887f, 0xff7043];
+    const NAIL = [0xd50000, 0xff4081, 0xaa00ff, 0x2962ff, 0xffab00, 0x00bfa5, 0xfafafa, 0x212121, 0xf8bbd0];
+    const WIDTH = [0.075, 0.07, 0.09, 0.055, 0.075, 0.13];                     // spacing per product type
+    const item = (T, u, v, yb) => {
+      if (T === 0) pr('box', u, v, yb, 0.065, 0.12 + rand()*0.04, 0.045, 0xffffff, TL.skin());                       // skincare boxes
+      else if (T === 1){ const h = 0.13 + rand()*0.05; pr('cyl', u, v, yb, 0.055, h, 0.055, 0xffffff, TL.bottle());    // pump bottles
+        pr('cyl', u, v, yb + h, 0.02, 0.035, 0.02, 0xf2f2f2); pr('box', u, v + 0.012, yb + h + 0.028, 0.008, 0.008, 0.03, 0xf2f2f2); }
+      else if (T === 2){ pr('cyl', u, v, yb, 0.075, 0.05, 0.075, pick(PAST)); pr('cyl', u, v, yb + 0.05, 0.08, 0.022, 0.08, pick(METAL)); }   // cream jars
+      else if (T === 3){ pr('cup', u, v, yb + 0.022, 0.045, 0.13, 0.03, 0xffffff, TL.tube()); pr('cyl', u, v, yb, 0.032, 0.022, 0.032, pick([0xec407a, 0xffffff, 0x42a5f5])); }   // tubes, cap down
+      else if (T === 4){ pr('box', u, v, yb, 0.06, 0.085, 0.035, 0xffffff, TL.perfume()); pr('cyl', u, v, yb + 0.085, 0.03, 0.035, 0.03, pick(METAL)); }   // perfume
+      else { const n = 3 + Math.floor(rand()*4); pr('box', u, v, yb, 0.12, n*0.008, 0.17, 0xffffff, TL.mask()); }    // sheet masks, stacked flat
+    };
+    const lipstick = (u, v, yb) => { pr('cyl', u, v, yb, 0.022, 0.055, 0.022, pick(METAL)); pr('cyl', u, v, yb + 0.055, 0.016, 0.028, 0.016, pick(LIP)); pr('cyl', u, v, yb + 0.083, 0.01, 0.006, 0.01, pick(LIP)); };
+    const polish = (u, v, yb) => { pr('cyl', u, v, yb, 0.03, 0.035, 0.03, pick(NAIL)); pr('cyl', u, v, yb + 0.035, 0.013, 0.04, 0.013, 0x1b1b1b); };
+    const facing = du => { const [a, b] = [P(0, 0), P(du, 0)]; return Math.atan2(b[0] - a[0], b[1] - a[1]); };     // rotY of a sign facing local +u·du
+    // wall shelves on both side walls: four glass-edged levels, products two rows deep
+    for (const side of [0, 1]){
+      const [a, b] = side ? [w - 0.62, w - 0.12] : [0.12, 0.62], back = side ? [b - 0.1, b + 0.02] : [a - 0.02, a + 0.1], [p0, p1] = side ? [a, b - 0.1] : [a + 0.1, b];
       fb(back[0], 0.8, back[1], d - 0.3, 2.1, 'counter');
       for (let k = 0; k < 4; k++){
-        fb(p0, 0.8, p1, d - 0.3, 0.04, 'counter', 0.35 + k*0.45);
-        for (let v = 0.9; v < d - 0.45; v += 0.1 + rand()*0.06){                 // bottles, jars, boxes
-          const um = (p0 + p1)/2 + (rand() - 0.5)*0.15, c = pick(COSM_C);
-          if (rand() < 0.55) pr('cyl', um, v, 0.39 + k*0.45, 0.06 + rand()*0.03, 0.1 + rand()*0.12, 0.06 + rand()*0.03, c);
-          else pr('box', um, v, 0.39 + k*0.45, 0.07 + rand()*0.05, 0.08 + rand()*0.1, 0.05 + rand()*0.03, c);
+        const yb = 0.39 + k*0.45;
+        fb(p0, 0.8, p1, d - 0.3, 0.04, 'counter', yb - 0.04);
+        pr('box', side ? p0 + 0.01 : p1 - 0.01, (0.8 + d - 0.3)/2, yb - 0.04, 0.02, 0.05, d - 1.1, 0xf4c2d2);          // pink shelf edge
+        for (let v = 0.9; v < d - 0.45; ){
+          const T = Math.floor(rand()*6), end = Math.min(d - 0.45, v + 0.5 + rand()*0.3), st = WIDTH[T];
+          for (; v < end; v += st) for (const r of [0.12, 0.28]) if (rand() < 0.93) item(T, side ? p1 - r : p0 + r, v, yb);
+          v += 0.04;
         }
       }
+      const [sx, sz] = P(side ? w - 0.25 : 0.25, d/2);
+      sign(side ? '彩妝' : '保養', side ? 'MAKEUP' : 'SKINCARE', sx, y + 2.45, sz, facing(side ? -1 : 1), 2.4, 0.5, '#d5577f');
     }
-    for (const v of [2.3, 5.6]){                                                // gondolas with lipsticks / palettes / tubes on top
-      fb(w/2 - 0.55, v, w/2 + 0.55, v + 2.4, 1.25, 'counter');
-      for (let a = v + 0.15; a < v + 2.3; a += 0.12) for (let b = w/2 - 0.42; b < w/2 + 0.43; b += 0.14)
-        if (rand() < 0.8) pr(rand() < 0.5 ? 'cyl' : 'box', b, a, 1.25, 0.05, 0.06 + rand()*0.1, 0.05, pick(COSM_C));
-      for (const sv of [v - 0.02, v + 2.42]) for (let b = w/2 - 0.45; b < w/2 + 0.46; b += 0.15) pr('box', b, sv, 0.35, 0.12, 0.14 + rand()*0.06, 0.04, pick(COSM_C));   // ends
+    // two gondolas: tester tops (lipsticks, palettes, blush, nail polish, round mirrors), product shelves on their sides
+    for (const v of [2.3, 5.6]){
+      fb(w/2 - 0.55, v, w/2 + 0.55, v + 2.4, 1.2, 'counter');
+      pr('box', w/2, v + 1.2, 1.2, 1.1, 0.012, 2.4, 0xf9e0e8);                                  // pink top
+      const rows = [0, 1, 2, 3, 0, 2, 1, 3];
+      rows.forEach((R, i) => {
+        const vv = v + 0.22 + i*0.27;
+        pr('box', w/2, vv, 1.212, 0.9, 0.012, 0.22, 0xffffff);                                   // acrylic tray
+        if (R === 0) for (let b = w/2 - 0.4; b < w/2 + 0.41; b += 0.06) for (const dv of [-0.05, 0.05]) lipstick(b, vv + dv, 1.224);
+        else if (R === 1) for (let b = w/2 - 0.36; b < w/2 + 0.37; b += 0.14) pr('box', b, vv, 1.224, 0.11, 0.012, 0.08, 0xffffff, TL.palette.ids[0]);
+        else if (R === 2) for (let b = w/2 - 0.38; b < w/2 + 0.39; b += 0.1) pr('cyl', b, vv, 1.224, 0.075, 0.016, 0.075, 0xffffff, TL.blush.ids[0]);
+        else for (let b = w/2 - 0.4; b < w/2 + 0.41; b += 0.055) for (const dv of [-0.05, 0.05]) polish(b, vv + dv, 1.224);
+      });
+      for (const vv of [v + 0.5, v + 1.9]){ pr('cyl', w/2, vv, 1.212, 0.06, 0.12, 0.06, 0xc0c0c0); pr('cyl', w/2, vv + 0.01, 1.33, 0.2, 0.012, 0.2, 0xd6eef5, 0, Math.PI/2, 0.15); }   // mirrors
+      for (const sd of [-1, 1]) for (const yb of [0.12, 0.52]){                                 // shelves on the long sides
+        const uu = w/2 + sd*0.66;
+        pr('box', uu, v + 1.2, yb - 0.03, 0.24, 0.03, 2.3, 0xf2f2f2);
+        for (let vv = v + 0.1; vv < v + 2.3; ){ const T = Math.floor(rand()*5), end = Math.min(v + 2.3, vv + 0.6), st = WIDTH[T];
+          for (; vv < end; vv += st) item(T, uu, vv, yb); vv += 0.04; }
+      }
+      for (const sv of [v - 0.08, v + 2.48]) for (const yb of [0.12, 0.52, 0.92]) for (let b = w/2 - 0.42; b < w/2 + 0.43; b += 0.13) item(5, b, sv, yb);   // sheet masks on the ends
     }
     fb(w/2 - 1.6, d - 1.5, w/2 + 1.6, d - 0.9, 1.0, 'counter');                // till
-    pr('box', w/2 + 0.8, d - 1.2, 1.0, 0.36, 0.14, 0.3, 0x2b2d30); pr('box', w/2 + 0.8, d - 1.32, 1.14, 0.3, 0.22, 0.03, 0x111316);   // register + screen
-    for (let k = 0; k < 5; k++) pr('box', w/2 - 1.3 + k*0.22, d - 1.2, 1.0, 0.16, 0.22, 0.12, pick(COSM_C));
+    pr('box', w/2 + 0.8, d - 1.2, 1.0, 0.36, 0.1, 0.3, 0x2b2d30); pr('box', w/2 + 0.8, d - 1.3, 1.1, 0.3, 0.2, 0.02, 0xffffff, TL.till.ids[0], -0.3, 0.6);   // register + screen
+    for (let k = 0; k < 4; k++) pr('box', w/2 - 1.35 + k*0.2, d - 1.05, 1.0, 0.16, 0.24, 0.08, [0xf8bbd0, 0xffffff, 0xf48fb1, 0xffffff][k]);   // shopping bags
+    for (let b = w/2 - 0.5; b < w/2 + 0.3; b += 0.06) lipstick(b, d - 1.35, 1.0);            // lip balms by the till
+    for (let k = 0; k < 4; k++) pr('cup', 1.3, 1.2, k*0.07, 0.42, 0.24, 0.3, 0xd5577f);            // basket stack by the door
   } else if (s.k === 'office'){
     for (let v = 3.5; v < d - 2; v += 3) for (let u = 1.6; u < w - 1.4; u += 3.2){
       fb(u - 0.7, v, u + 0.7, v + 0.7, 0.76, 'wood'); fb(u - 0.25, v + 0.85, u + 0.25, v + 1.3, 0.45, 'sofa');
@@ -1116,12 +1308,13 @@ const FRONT = {
 // ---------- doors: a hinged leaf in every non-glass room / stairwell doorway, closed at start, toggled with E or the button ----------
 // Closed: a thin collider fills the gap (also stops the camera). Open: the leaf swings 90° into the room and the collider is off.
 const DOORS = [], DOOR_T = 0.05, DOOR_OPEN_S = 0.45;     // leaf thickness (m), seconds to swing
-function addDoor(F, u, w, h, y){
+function addDoor(F, u, w, h, y, o = {}){
   const hinge = F.P(u - w/2, 0), end = F.P(u + w/2, 0), inn = F.P(u - w/2, 1);
   const d = [end[0] - hinge[0], end[1] - hinge[1]], n = [inn[0] - hinge[0], inn[1] - hinge[1]];
   const pts = [F.P(u - w/2, -0.07), F.P(u + w/2, -0.07), F.P(u + w/2, 0.07), F.P(u - w/2, 0.07)];
   DOORS.push({hinge, y, w, h, thC: Math.atan2(-d[1], d[0]), thO: Math.atan2(-n[1], n[0]), t: 0, target: 0,
-    c: F.P(u, 0), col: col(pts, y, y + h - 0.02)});
+    c: F.P(u, 0), col: col(pts, y, y + h - 0.02), color: o.color ?? 0x8a5f3c});
+  if (o.open){ const D = DOORS[DOORS.length - 1]; D.t = D.target = 1; D.col.off = true; }
 }
 function room(f, x0, z0, x1, z1, front, s){
   const y = L[f], ceil = y + H - SL, F = FRONT[front](x0, z0, x1, z1);
@@ -1218,16 +1411,79 @@ for (const [x, key] of [[-48.4, 'postR'], [-47.6, 'postG']]){                 //
 WB(1, C1Z[1], SLOT[0], 'n', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
 WB(2, C1Z[1], SLOT[0], 'n', [BXW, -52, -40, WX], [{n:'舞蹈教室 Dance Studio', k:'big', floor:'wood', doors:[-58]}, club({doors:[-43]}), club({doors:[-31]})]);
 WB(3, C1Z[1], SLOT[0], 'n', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+
+// ---------- restrooms (廁所) across corridor 2 from the square stair, same on every floor ----------
+// Facing them from the stair door: a shallow open entrance (no door) in the middle, men's room through the doorway on its
+// left (west), women's on its right (east). Inside: cubicles with doors (E to open / close: they start open), urinals, sinks + mirror.
+const WC = {x0:-67, x1:-58, xm:-62.5, rx:[-64.2, -60.8], rz:13.6};
+function restroom(f){
+  const y = L[f], c = y + H - SL, z0 = SLOT[1], z1 = C2Z[0], {x0, x1, xm, rx, rz} = WC, IN = WT/2;
+  const op = (z1 - rz)/2;
+  wseg(x0, z1, rx[0], z1, y, c, 'wall'); wseg(rx[1], z1, x1, z1, y, c, 'wall'); wseg(rx[0], z1, rx[1], z1, y + 2.8, c, 'wall', WT, {ext:0});
+  for (const x of rx) wallLine(x, rz, x, z1, y, c, 'tileW', [[op, 1.3, 2.4]], {lintel:'tileW'});
+  wseg(rx[0], rz, rx[1], rz, y, c, 'tileW');
+  wseg(xm, z0, xm, rz, y, c, 'tileW');
+  // signs: on the corridor wall (男 left, 女 right) and over each doorway inside the entrance
+  sign('廁所', 'Restrooms', (rx[0] + rx[1])/2, y + 3.18, z1 + IN + 0.02, 0, 2.6, 0.5, '#2f4f63');
+  sign('男', 'Men', (x0 + rx[0])/2, y + 2.0, z1 + IN + 0.02, 0, 0.8, 0.8, '#1e63b5');
+  sign('女', 'Women', (rx[1] + x1)/2, y + 2.0, z1 + IN + 0.02, 0, 0.8, 0.8, '#d6336c');
+  sign('男廁', 'Men', rx[0] + IN + 0.02, y + 2.7, rz + op, Math.PI/2, 1.0, 0.36, '#1e63b5');
+  sign('女廁', 'Women', rx[1] - IN - 0.02, y + 2.7, rz + op, -Math.PI/2, 1.0, 0.36, '#d6336c');
+  // drinking-water dispenser on the back wall of the entrance
+  boxS(-63.0, rz + IN, -62.0, rz + IN + 0.45, y, y + 1.25, 'metal', {cam:false});
+  prop('box', -62.5, y + 0.95, rz + IN + 0.46, 0.6, 0.2, 0.02, 0x1e88e5); sign('飲水機', 'Water', -62.5, y + 1.55, rz + IN + 0.02, 0, 0.9, 0.3, '#1e88e5');
+  zone('男廁 Men\'s Restroom', f, x0, z0, xm, z1);
+  zone('女廁 Women\'s Restroom', f, xm, z0, x1, z1);
+  zone('廁所 Restrooms', f, rx[0], rz, rx[1], z1);
+  // cubicles: front line x = xf, back wall x = xb, n cubicles from za going +z; each has a door (starts open) and a toilet
+  const cubicles = (xf, xb, za, n, sw = 1.4) => {
+    const dir = Math.sign(xb - xf), lo = Math.min(xf, xb), hi = Math.max(xf, xb);
+    for (let k = 0; k <= n; k++){ const z = za + k*sw; boxS(lo, z - 0.025, hi, z + 0.025, y + 0.12, y + 2.05, 'stall', {cam:false}); }
+    for (let k = 0; k < n; k++){
+      const a = za + k*sw, b = a + sw;
+      for (const [p0, p1] of [[a, a + 0.36], [b - 0.36, b]]) boxS(xf - 0.025, p0, xf + 0.025, p1, y + 0.12, y + 2.05, 'stall', {cam:false});
+      const F = {P:(u, v) => [xf + dir*v, a + 0.36 + u]};
+      addDoor(F, (sw - 0.72)/2, sw - 0.74, 1.9, y + 0.12, {color:0x7f9bb2, open:true});
+      const tx = xb - dir*0.5, tz = (a + b)/2;                                        // toilet: bowl + seat + tank, facing the door
+      put(cylGeo(tx, tz, y, y + 0.4, 0.2, 12), 'porcelain'); prop('cyl', tx, y + 0.4, tz, 0.42, 0.03, 0.46, 0xf4f4f4);
+      boxS(Math.min(xb, xb - dir*0.22), tz - 0.24, Math.max(xb, xb - dir*0.22), tz + 0.24, y + 0.35, y + 0.85, 'porcelain', {cam:false});
+      col(circlePts(tx, tz, 0.22, 6), y, y + 0.42, {cam:false});
+      prop('cyl', xb - dir*0.06, y + 0.7, tz + 0.45, 0.12, 0.12, 0.12, 0xfafafa, 0, 0, Math.PI/2);   // paper roll
+    }
+    bar([xf, y + 2.07, za], [xf, y + 2.07, za + n*sw], 0.05, 'steel');
+  };
+  cubicles(x0 + IN + 1.55, x0 + IN, z0 + IN + 0.05, 4);                                 // men: four cubicles on the west wall
+  cubicles(x1 - IN - 1.55, x1 - IN, z0 + IN + 0.05, 4);                                 // women: four on the east wall …
+  cubicles(xm + IN + 1.55, xm + IN, z0 + IN + 0.5, 3);                                  // … and three on the partition wall
+  // urinals on the partition wall (men), with privacy screens
+  for (let z = z0 + 1.0; z < rz - 0.6; z += 1.0){
+    boxS(xm - IN - 0.36, z - 0.2, xm - IN, z + 0.2, y + 0.45, y + 1.15, 'porcelain', {cam:false});
+    prop('cyl', xm - IN - 0.05, y + 1.2, z, 0.05, 0.08, 0.05, 0xc0c0c0);
+    boxS(xm - IN - 0.5, z + 0.48, xm - IN, z + 0.52, y + 0.55, y + 1.5, 'stall', {cam:false});
+  }
+  // sinks along the inside of the corridor wall, a mirror above
+  for (const [a, b] of [[x0 + IN + 0.15, rx[0] - IN - 0.3], [rx[1] + IN + 0.3, x1 - IN - 0.15]]){
+    const zc = z1 - IN - 0.28;
+    boxS(a, z1 - IN - 0.55, b, z1 - IN, y, y + 0.85, 'counter', {cam:false});
+    put(prismGeo(rect(a, z1 - IN - 0.02, b, z1 - IN - 0.005), y + 1.1, y + 2.0), 'mirror');
+    for (let x = a + 0.45; x < b - 0.3; x += 0.8){ prop('cyl', x, y + 0.8, zc, 0.38, 0.06, 0.3, 0xffffff); prop('cyl', x, y + 0.85, zc + 0.18, 0.03, 0.14, 0.03, 0xc0c0c0); prop('box', x, y + 0.97, zc + 0.11, 0.025, 0.025, 0.14, 0xc0c0c0); }
+    prop('box', b - 0.1, y + 1.2, z1 - IN - 0.08, 0.28, 0.35, 0.14, 0xeeeeee);      // hand dryer
+  }
+}
+
 // band 2 north (between the slope and corridor 2), rooms open south onto corridor 2
-WB(0, SLOT[1], C2Z[0], 's', [BXW, -52, WX], [{n:'生活輔導組 Student Life', k:'office', doors:[-60]}, {n:'會議室 Meeting Room', k:'office', doors:[-36]}]);
-WB(1, SLOT[1], C2Z[0], 's', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
-WB(2, SLOT[1], C2Z[0], 's', [BXW, -52, -40, WX], [{n:'多功能教室 Multipurpose Room', k:'big', doors:[-64]}, club({doors:[-43]}), club({doors:[-31]})]);
-WB(3, SLOT[1], C2Z[0], 's', WDIV, [club({doors:[-67]}), club({doors:[-55]}), club({doors:[-43]}), club({doors:[-31]})]);
+// restrooms (every floor) right across corridor 2 from the square stair's door: WC.x0..WC.x1
+const WCR = {n:'廁所 Restrooms', k:'wc', open:true, noSign:true};
+WB(0, SLOT[1], C2Z[0], 's', [BXW, WC.x0, WC.x1, WX], [{n:'生活輔導組 Student Life', k:'office', doors:[-71.5]}, WCR, {n:'會議室 Meeting Room', k:'office', doors:[-36]}]);
+WB(1, SLOT[1], C2Z[0], 's', [BXW, WC.x0, WC.x1, -43, WX], [club({doors:[-71.5]}), WCR, club({doors:[-50]}), club({doors:[-35]})]);
+WB(2, SLOT[1], C2Z[0], 's', [BXW, WC.x0, WC.x1, -40, WX], [{n:'多功能教室 Multipurpose Room', k:'big', doors:[-71.5]}, WCR, club({doors:[-49]}), club({doors:[-31]})]);
+WB(3, SLOT[1], C2Z[0], 's', [BXW, WC.x0, WC.x1, -43, WX], [club({doors:[-71.5]}), WCR, club({doors:[-50]}), club({doors:[-35]})]);
+for (let f = 0; f < 4; f++) restroom(f);
 { // dance studio mirrors + multipurpose tables
   const y = L[2];
   put(prismGeo(rect(BXW + 1, SLOT[0] - 0.2, -53, SLOT[0] - 0.15), y + 0.2, y + 2.6), 'mirror');
   bar([BXW + 1.5, y + 1.0, SLOT[0] - 0.4], [-53.5, y + 1.0, SLOT[0] - 0.4], 0.05, 'steel');
-  for (let x = -73; x < -56; x += 3.5) boxS(x, 9.5, x + 1.2, 13, y, y + 0.76, 'wood', {cam:false});
+  for (let x = -74.6; x < -69; x += 3) boxS(x, 9.5, x + 1.2, 13, y, y + 0.76, 'wood', {cam:false});
   boxS(BXW + 0.4, 9, BXW + 0.8, 14, y + 0.9, y + 2.3, 'screen', {noCol:true});
 }
 // slope (open to the sky): from the 2F west gallery (high end, inside) down to the ground outside the west face
@@ -1341,12 +1597,11 @@ room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'cou
 {
   sign('麗文校園書局', 'Liwen Campus Bookstore', 21, L[2] + 3.25, NZ + 0.2, 0, 7, 0.65, '#3ea04a');
   sign('麗文書局', 'Liwen', NX1 + 0.16, L[2] + 3.15, -22, Math.PI/2, 3, 0.65, '#3ea04a');
-  sign('麗文書局', '2F', 26, L[1] + 3.25, NZ + 0.2, 0, 3.2, 0.62, '#3ea04a');
+  sign('國立中正大學書局', 'National Chung Cheng University Bookstore', 21.5, L[1] + 3.3, NZ + 0.2, 0, 6, 0.75, '#ffffff', '#1f6b3a');   // 2F: white panel, green letters (Kai's photo)
   boxS(NX1 + 0.15, -19.5, NX1 + 0.8, -18.8, L[2], L[2] + 3.4, 'lib', {cam:false});   // green pillar sign in the entrance hall
   for (const z of [-20.5, -23]) boxS(14, z - 0.25, 23, z + 0.25, L[2], L[2] + 1.8, 'dark', {cam:false});
-  for (const z of [-20.5, -23]) boxS(17, z - 0.25, 28, z + 0.25, L[1], L[1] + 1.8, 'dark', {cam:false});
   // books on both faces of every shelf, four levels, with a light shelf board under each row
-  for (const [x0, x1, yb] of [[14, 23, L[2]], [17, 28, L[1]]]) for (const z of [-20.5, -23]) for (const sd of [-1, 1]) for (const yy of [0.08, 0.52, 0.96, 1.4]){
+  for (const [x0, x1, yb] of [[14, 23, L[2]]]) for (const z of [-20.5, -23]) for (const sd of [-1, 1]) for (const yy of [0.08, 0.52, 0.96, 1.4]){
     bookRow(x0, z + sd*0.25, x1, z + sd*0.25, yb + yy, 0, sd);
     prop('box', (x0 + x1)/2, yb + yy - 0.03, z + sd*0.27, x1 - x0, 0.03, 0.08, 0xc8b08a);
   }
@@ -1365,35 +1620,228 @@ room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'cou
   railX(13, 22.2, -24.9, L[2]); railZ(13, -27.7, -24.9, L[2]);
   mapAdd(1, rect(14, -27.6, 22.2, -25.2), 'stair'); mapAdd(2, rect(14, -27.6, 22.2, -25.2), 'stair');
 }
-// --- 全家 FamilyMart ---
+// --- 麗文 2F (x 12..30, z -BZ..NZ, door x 26): Apple corner (Macs, iPads) on the east side, stationery + books on the west side ---
 {
-  const y = L[2];
-  sign('FamilyMart 全家', '', 1.5, y + 3.25, NZ + 0.2, 0, 6, 0.65, '#2f9e5a');
-  boxS(-8.6, -BZ + 0.2, 11.6, -BZ + 1.0, y, y + 2.1, 'fridge', {cam:false});
-  for (const z of [-24, -21]) for (const [a, b] of [[-7, -1.5], [3.5, 10]]) boxS(a, z - 0.4, b, z + 0.4, y, y + 1.5, 'metal', {cam:false});
-  boxS(-8.5, -17.4, -5.5, -16.6, y, y + 1.0, 'counter', {cam:false});
-  const SNACK = [0xe53935, 0xfdd835, 0x43a047, 0x1e88e5, 0xfb8c00, 0x8e24aa, 0xf5f5f5, 0x6d4c41], DRINK = [0x2e7d32, 0xc62828, 0xf9a825, 0x1565c0, 0xeceff1, 0x6d4c41, 0xff7043];
-  // drinks fridge along the back wall: bottles and cans on five levels behind the glass, door frames every metre
-  for (const yy of [0.12, 0.52, 0.92, 1.32, 1.72]) for (let x = -8.45; x < 11.5; x += 0.085) if (rand() < 0.93){
-    const tall = rand() < 0.6; prop('cyl', x, y + yy, -BZ + 1.05, 0.065, tall ? 0.24 : 0.13, 0.065, pick(DRINK)); }
-  for (let x = -8.6; x <= 11.61; x += 1.01) prop('box', x, y, -BZ + 1.1, 0.05, 2.1, 0.04, 0x9aa3a8);
-  // shelves: snack bags, instant noodles, boxes on both faces, four levels
-  for (const z of [-24, -21]) for (const [a, b] of [[-7, -1.5], [3.5, 10]]) for (const sd of [-1, 1]) for (const yy of [0.1, 0.45, 0.8, 1.15]){
-    const kind = Math.floor(rand()*3);
-    for (let x = a + 0.08; x < b - 0.08; x += 0.15 + rand()*0.05){
-      if (rand() < 0.08) continue;
-      const c = pick(SNACK), zz = z + sd*0.47;                                         // in front of the shelf face (z ± 0.4)
-      if (kind === 0) prop('box', x, y + yy, zz, 0.13, 0.2 + rand()*0.06, 0.07, c);                     // snack bags
-      else if (kind === 1){ prop('cyl', x, y + yy, zz, 0.1, 0.1, 0.1, c); prop('cyl', x, y + yy + 0.1, zz, 0.1, 0.1, 0.1, c); }   // cup noodles, two high
-      else prop('box', x, y + yy, zz, 0.12, 0.16, 0.12, c);                                             // boxes
-    }
-    prop('box', (a + b)/2, y + yy - 0.03, z + sd*0.42, b - a, 0.04, 0.03, 0xf2f2f2);                    // price strip
+  const y = L[1], p = (k, x, yb, z, sx, sy, sz, c, r = 0, t = 0, tilt = 0, glow = 0) => prop(k, x, y + yb, z, sx, sy, sz, c, r, t, tilt, glow);
+  const ALU = [0x8fb8de, 0xa8d5a2, 0xf3b0c3, 0xd9dde1, 0xf6d28b, 0xc5b3e6, 0xf2a37a];
+  // a laptop at (x, z) on height yb facing direction r (0 = south): keyboard base, silver lid, glowing screen
+  const laptop = (x, z, yb, r) => {
+    const s = Math.sin(r), c = Math.cos(r), at = (dz, dy = 0) => [x + s*dz, yb + dy, z + c*dz];
+    p('box', x, yb, z, 0.31, 0.012, 0.215, 0xffffff, r, TL.kbd.ids[0]);
+    const [lx, ly, lz] = at(-0.105, 0.006); p('box', lx, ly, lz, 0.31, 0.205, 0.006, 0xc9ccd1, r, 0, -0.32);
+    const [sx, sy, sz] = at(-0.098, 0.012); p('box', sx, sy, sz, 0.29, 0.185, 0.003, 0xffffff, r, TL.screen(), -0.32, 0.75);
+  };
+  const tablet = (x, z, yb, r) => { p('box', x, yb, z, 0.08, 0.04, 0.08, 0xc9ccd1, r); p('box', x, yb + 0.03, z, 0.25, 0.18, 0.008, 0xffffff, r, TL.tablet.ids[0], -0.35, 0.7); };
+  // two light-wood display tables with laptops along both long sides, tablets and phones at the ends
+  for (const z of [-24.6, -21.0]){
+    const x0 = 23.3, x1 = 27.7;
+    boxS(x0, z - 0.55, x1, z + 0.55, y, y + 0.86, 'maple', {cam:false});
+    for (let x = x0 + 0.55; x < x1 - 0.4; x += 0.85){ laptop(x, z + 0.25, 0.86, 0); laptop(x + 0.3, z - 0.25, 0.86, Math.PI); }
+    tablet(x0 + 0.25, z, 0.86, -Math.PI/2); tablet(x1 - 0.25, z, 0.86, Math.PI/2);
+    for (let k = 0; k < 3; k++) p('box', x1 - 0.5, 0.86, z - 0.2 + k*0.2, 0.075, 0.008, 0.15, 0xffffff, 0, TL.tablet.ids[0], 0, 0.5);
   }
-  // counter: two tills, coffee machine, a warmer with tea eggs / buns
-  for (const x of [-8.0, -6.9]){ prop('box', x, y + 1.0, -17.0, 0.36, 0.13, 0.32, 0x2b2d30); prop('box', x, y + 1.13, -17.15, 0.3, 0.22, 0.03, 0x111316); }
-  prop('box', -5.95, y + 1.0, -17.0, 0.42, 0.62, 0.45, 0x3a3d42); prop('box', -5.95, y + 1.25, -16.79, 0.3, 0.2, 0.02, 0xd0463a);
-  prop('box', -7.45, y + 1.0, -16.9, 0.5, 0.3, 0.42, 0xd9c7a0);
-  sign('收銀台', 'Cashier', -7.0, y + 2.6, -16.9, 0, 1.6, 0.45, '#2f9e5a');
+  // desktop all-in-ones on a white wall counter along the east wall (facing west), product boxes on a shelf above
+  boxS(29.15, -27.6, 29.85, -18.4, y, y + 0.9, 'counter', {cam:false});
+  for (let z = -27.0; z < -18.6; z += 1.15){
+    const c = pick(ALU), r = -Math.PI/2;
+    p('box', 29.55, 0.9, z, 0.18, 0.01, 0.16, c, r); p('box', 29.58, 0.9, z, 0.16, 0.2, 0.03, c, r, 0, -0.15);
+    p('box', 29.5, 1.08, z, 0.6, 0.44, 0.03, c, r); p('box', 29.48, 1.16, z, 0.56, 0.33, 0.005, 0xffffff, r, TL.screen(), 0, 0.75);
+    p('box', 29.3, 0.9, z, 0.3, 0.012, 0.11, 0xf2f2f2, r); p('box', 29.3, 0.9, z + 0.27, 0.07, 0.015, 0.11, 0xf2f2f2, r);   // keyboard + mouse
+  }
+  p('box', 29.62, 1.75, -23.0, 0.4, 0.03, 9.2, 0xf2f2f2);
+  for (let z = -27.4; z < -18.7; z += 0.32) p('box', 29.6, 1.78, z, 0.28, 0.24 + rand()*0.1, 0.26, 0xffffff, -Math.PI/2, TL.pbox());
+  sign('Mac · iPad', 'Apple 產品專區', 25.5, y + 2.75, -22.8, 0, 2.6, 0.62, '#1d1d1f');
+  boxS(27.6, -18.3, 29.2, -17.6, y, y + 1.0, 'counter', {cam:false});                    // checkout
+  p('box', 28.4, 1.0, -17.95, 0.36, 0.1, 0.3, 0x2b2d30); p('box', 28.4, 1.1, -18.05, 0.3, 0.2, 0.02, 0xffffff, Math.PI, TL.till.ids[0], -0.25, 0.6);
+  // stationery gondolas: notebooks, pen packs, pen cups, sticky notes, files
+  for (const z of [-23.0, -20.0]){
+    const x0 = 14.0, x1 = 20.6;
+    boxS(x0, z - 0.35, x1, z + 0.35, y, y + 1.4, 'dark', {cam:false});
+    for (const sd of [-1, 1]) for (const yb of [0.12, 0.5, 0.88]){
+      p('box', (x0 + x1)/2, yb - 0.03, z + sd*0.42, x1 - x0, 0.03, 0.14, 0xc8b08a);
+      for (let x = x0 + 0.1; x < x1 - 0.1; ){
+        const T = Math.floor(rand()*5), end = Math.min(x1 - 0.1, x + 0.6 + rand()*0.6), zz = z + sd*0.44;
+        for (; x < end; ){
+          if (T === 0){ for (let k = 0; k < 6; k++) p('box', x, yb, zz - sd*0.05 + sd*k*0.012, 0.18, 0.25, 0.01, 0xffffff, 0, TL.notebook(), sd*0.06); x += 0.21; }
+          else if (T === 1){ p('box', x, yb + 0.1, zz + sd*0.02, 0.1, 0.2, 0.01, 0xffffff, 0, TL.penpack()); x += 0.13; }
+          else if (T === 2){ p('cyl', x, yb, zz, 0.09, 0.1, 0.09, pick([0x333333, 0xffffff, 0x1e88e5])); for (let k = 0; k < 6; k++) p('cyl', x - 0.025 + (k % 3)*0.025, yb + 0.05, zz - 0.012 + Math.floor(k/3)*0.025, 0.01, 0.15, 0.01, pick([0x1e88e5, 0xe53935, 0x212121, 0x43a047, 0xec407a])); x += 0.13; }
+          else if (T === 3){ for (let k = 0; k < 3; k++) p('box', x, yb + k*0.035, zz, 0.076, 0.035, 0.076, pick([0xfff176, 0xf48fb1, 0x81d4fa, 0xa5d6a7, 0xffcc80])); x += 0.1; }
+          else { for (let k = 0; k < 5; k++) p('box', x, yb, zz - sd*0.05 + sd*k*0.02, 0.23, 0.31, 0.015, pick([0xe3f2fd, 0xfce4ec, 0xfff9c4, 0xe8f5e9, 0x90caf9])); x += 0.26; }
+        }
+        x += 0.05;
+      }
+    }
+  }
+  sign('文具', 'Stationery', 17.3, y + 2.7, -21.5, 0, 2.2, 0.55, '#3ea04a');
+  // school souvenirs table by the door: 中正 notebooks, mugs, tote bags
+  boxS(19.2, -18.3, 21.6, -17.3, y, y + 0.8, 'maple', {cam:false});
+  for (let k = 0; k < 4; k++){ let yy = 0.8; for (let j = 0; j < 4; j++){ p('box', 19.5 + k*0.25, yy, -17.95, 0.18, 0.012, 0.25, 0xffffff, 0, TL.notebook.ids[2]); yy += 0.012; } }
+  for (let k = 0; k < 4; k++) p('cyl', 20.6 + (k % 2)*0.14, 0.8, -17.7 - Math.floor(k/2)*0.14, 0.09, 0.1, 0.09, k % 2 ? 0x1f5d3a : 0xffffff);
+  for (let k = 0; k < 3; k++) p('box', 21.1 + k*0.12, 0.8, -18.0, 0.3, 0.36, 0.02, 0xefe6d2, Math.PI/2, TL.notebook.ids[2]);
+  sign('學校紀念品', 'Souvenirs', 20.4, y + 1.35, -17.28, 0, 1.4, 0.3, '#1f5d3a');
+  // books along the west wall, under a sky-blue wall (children's corner in Kai's photo)
+  boxS(12.15, -24.6, 12.6, -16.6, y, y + 1.9, 'dark', {cam:false});
+  for (const yy of [0.08, 0.52, 0.96, 1.4]) bookRow(12.52, -16.7, 12.52, -24.5, y + yy, 1, 0);
+  put(prismGeo(rect(12.14, -27.8, 12.18, -16.3), y + 1.9, y + 3.6), 'kidsBlue', false);
+  for (const [x, z, c] of [[14.0, -17.6, 0x42a5f5]]){ put(cylGeo(x, z, y, y + 0.5, 0.5, 16), 'kidsBlue'); col(circlePts(x, z, 0.5, 8), y, y + 0.5, {cam:false}); }
+  for (const [x, z, c] of [[13.2, -17.6, 0xffd54f], [14.8, -17.6, 0x81c784], [14.0, -18.4, 0xf06292]]) p('cyl', x, 0, z, 0.3, 0.3, 0.3, c);
+}
+// --- 全家 FamilyMart (3F, x -9..12, z -BZ..NZ, door x 1) — from Kai's photos: lime-green wall, open chilled case (bento, rice balls,
+// sandwiches, milk), glass-door drink fridges, bread rack, snack gondolas, wood-top counter with hot food (tea eggs, roast sweet potatoes,
+// hot-dog roller, pastry warmer), microwaves + coffee machine behind it, ice-cream freezer, promo rack, gashapon machines outside ---
+{
+  const y = L[2], ZB = -BZ + 0.13, p = (k, x, yb, z, sx, sy, sz, c, r = 0, t = 0, tilt = 0, glow = 0) => prop(k, x, y + yb, z, sx, sy, sz, c, r, t, tilt, glow);
+  const glass = (x0, z0, x1, z1, y0, y1) => put(prismGeo(rect(x0, z0, x1, z1), y + y0, y + y1), 'glass', false);
+  sign('FamilyMart 全家', '', 1.5, y + 3.25, NZ + 0.2, 0, 6, 0.65, '#2f9e5a');
+  sign("Let's Café", '', -4.6, y + 0.55, NZ + 0.07, 0, 5.4, 1.0, '#8e1b2b');                           // red band on the window
+  sign('霜淇淋', '買一送一 Buy 1 Get 1', -4.6, y + 1.75, NZ + 0.07, 0, 2.4, 0.9, '#f6c6da', '#222');
+  // lime-green feature walls (west wall, back wall above the fridges)
+  put(prismGeo(rect(-8.87, -27.8, -8.83, NZ - 0.2), y, y + 3.6), 'fmLime', false);
+  put(prismGeo(rect(-8.8, ZB - 0.04, 11.8, ZB), y + 2.2, y + 3.6), 'fmLime', false);
+  // --- open chilled case on the back wall (x -8.6..0.4): bento, rice balls, sandwiches, milk, salads, puddings ---
+  const OC = [-8.6, 0.4];
+  boxS(OC[0], ZB, OC[1], -26.95, y, y + 0.62, 'fridge', {cam:false});
+  boxS(OC[0], ZB, OC[1], ZB + 0.3, y + 0.62, y + 2.15, 'fridge', {cam:false});
+  boxS(OC[0], ZB, OC[1], -26.8, y + 1.95, y + 2.15, 'fridge', {cam:false, noCol:true});
+  for (const x of [OC[0] + 0.05, OC[1] - 0.05]) boxS(x - 0.05, ZB, x + 0.05, -26.9, y + 0.62, y + 1.95, 'fridge', {cam:false, noCol:true});
+  p('box', (OC[0] + OC[1])/2, 1.93, -26.95, OC[1] - OC[0] - 0.2, 0.02, 0.06, 0xffffff, 0, 0, 0, 1.2);        // light strip
+  p('box', (OC[0] + OC[1])/2, 0.62, ZB + 0.31, OC[1] - OC[0] - 0.2, 1.3, 0.01, 0xf4f7f8, 0, 0, 0, 0.35);    // lit back panel
+  const SH = [[0.62, -26.95], [0.98, -27.15], [1.32, -27.3], [1.64, -27.42]];                         // shelf height, front edge
+  for (const [yb, zf] of SH){
+    p('box', (OC[0] + OC[1])/2, yb - 0.02, (ZB + 0.3 + zf)/2, OC[1] - OC[0] - 0.2, 0.02, zf - ZB - 0.3, 0xdfe4e6);
+    p('box', (OC[0] + OC[1])/2, yb - 0.05, zf, OC[1] - OC[0] - 0.2, 0.05, 0.015, 0xffffff);          // price strip
+  }
+  for (let x = OC[0] + 0.25; x < OC[1] - 0.2; ){
+    const T = Math.floor(rand()*3), end = Math.min(OC[1] - 0.2, x + 1.2 + rand()*0.6);
+    for (const [yb, zf] of SH){
+      const z0 = zf - 0.12, z1 = Math.max(ZB + 0.45, zf - 0.5);
+      for (let xx = x; xx < end; ){
+        if (yb < 0.7){ for (let z = z0; z > z1; z -= 0.18){ p('box', xx + 0.1, yb, z, 0.19, 0.055, 0.15, 0xffffff, 0, TL.bento()); if (rand() < 0.6) p('box', xx + 0.1, yb + 0.055, z, 0.19, 0.055, 0.15, 0xffffff, 0, TL.bento()); } xx += 0.22; }
+        else if (T === 0){ const t = TL.onigiri(); for (let z = z0; z > z1; z -= 0.045) p('tri', xx + 0.05, yb, z, 0.1, 0.095, 0.035, 0xffffff, 0, t); xx += 0.12; }
+        else if (T === 1){ if (rand() < 0.5){ for (let z = z0; z > z1; z -= 0.07) p('tri', xx + 0.065, yb, z, 0.13, 0.12, 0.06, 0xffffff, 0, TL.sandwich.ids[0]); xx += 0.15; }
+                           else { for (let z = z0; z > z1; z -= 0.09) p('cup', xx + 0.05, yb, z, 0.085, 0.08, 0.085, pick([0xfff8e1, 0xffffff, 0xfce4ec])); xx += 0.1; } }
+        else { if (yb > 1.5){ for (let z = z0; z > z1; z -= 0.08){ p('box', xx + 0.04, yb, z, 0.07, 0.19, 0.07, 0xffffff, 0, TL.milk.ids[0]); p('tri', xx + 0.04, yb + 0.19, z, 0.07, 0.03, 0.07, 0xffffff); } xx += 0.09; }
+               else { for (let z = z0; z > z1; z -= 0.14) p('cyl', xx + 0.07, yb, z, 0.13, 0.07, 0.13, pick([0x9ccc65, 0xaed581, 0xf48fb1])); xx += 0.15; } }
+      }
+    }
+    x = end + 0.05;
+  }
+  sign('鮮食 Fresh Food', '', (OC[0] + OC[1])/2, y + 2.05, -26.79, 0, 3.2, 0.18, '#2f9e5a');
+  // --- glass-door drink fridges (x 0.6..11.8, seven 1.6 m doors): lit interior, five shelves of bottles / cans / cartons ---
+  const DF = [0.6, 11.8], DFZ = -26.9;
+  boxS(DF[0], ZB, DF[1], ZB + 0.2, y, y + 2.2, 'fridge', {cam:false, noCol:true});
+  boxS(DF[0], ZB, DF[1], DFZ, y + 1.95, y + 2.2, 'fridge', {cam:false, noCol:true});
+  boxS(DF[0], ZB, DF[1], DFZ, y, y + 0.1, 'fridge', {cam:false, noCol:true});
+  col(rect(DF[0], ZB, DF[1], DFZ + 0.05), y, y + 2.2, {cam:false});
+  glass(DF[0], DFZ - 0.01, DF[1], DFZ + 0.01, 0.1, 1.95);
+  p('box', (DF[0] + DF[1])/2, 0.1, ZB + 0.21, DF[1] - DF[0], 1.85, 0.01, 0xf4f7f8, 0, 0, 0, 0.45);
+  for (let x = DF[0]; x <= DF[1] + 0.01; x += 1.6){ p('box', x, 0.1, DFZ, 0.06, 1.85, 0.05, 0xb0b8bc); if (x < DF[1] - 0.1) p('box', x + 0.12, 0.6, DFZ + 0.04, 0.025, 0.9, 0.025, 0x9aa3a8); }
+  p('box', (DF[0] + DF[1])/2, 2.0, DFZ + 0.012, DF[1] - DF[0], 0.14, 0.02, 0xffffff, 0, 0, 0, 0.8);         // header light
+  for (const yb of [0.12, 0.48, 0.84, 1.2, 1.56]){
+    p('box', (DF[0] + DF[1])/2, yb - 0.02, (ZB + DFZ)/2 + 0.1, DF[1] - DF[0], 0.015, 0.7, 0xd5dde0);
+    for (let x = DF[0] + 0.08; x < DF[1] - 0.05; ){
+      const T = Math.floor(rand()*4), end = Math.min(DF[1] - 0.05, x + 0.4 + rand()*0.5), tl = T === 1 ? TL.can() : TL.drink();
+      for (; x < end; x += [0.075, 0.072, 0.085, 0.1][T]) for (const z of [DFZ - 0.08, DFZ - 0.2]){
+        if (T === 0){ p('cyl', x, yb, z, 0.065, 0.2, 0.065, 0xffffff, 0, tl); p('cyl', x, yb + 0.2, z, 0.03, 0.025, 0.03, pick([0xffffff, 0x2e7d32, 0xd32f2f, 0x1565c0])); }
+        else if (T === 1) p('cyl', x, yb, z, 0.066, 0.12, 0.066, 0xffffff, 0, tl);
+        else if (T === 2){ p('box', x, yb, z, 0.07, 0.17, 0.05, 0xffffff, 0, tl); p('tri', x, yb + 0.17, z, 0.07, 0.025, 0.05, 0xffffff); }
+        else { p('box', x, yb, z, 0.09, 0.26, 0.07, 0xffffff, 0, tl); p('cyl', x, yb + 0.26, z, 0.035, 0.025, 0.035, 0xffffff); }
+      }
+      x += 0.03;
+    }
+  }
+  sign('冷飲 Cold Drinks', '', (DF[0] + DF[1])/2, y + 2.32, DFZ + 0.01, 0, 3.2, 0.22, '#1e63b5');
+  // --- bread rack (stepped open shelves, x -1.8..2.4) with a breakfast poster ---
+  boxS(-1.8, -24.5, 2.4, -24.1, y, y + 1.7, 'metal', {cam:false});
+  boxS(-1.8, -24.1, 2.4, -23.7, y, y + 0.35, 'metal', {cam:false});
+  for (const [yb, zz] of [[0.35, -23.85], [0.75, -23.98], [1.12, -24.1], [1.48, -24.22]]){
+    p('box', 0.3, yb - 0.02, zz, 4.2, 0.02, 0.32, 0xc9ced1);
+    for (let x = -1.7; x < 2.3; x += 0.17){ if (rand() < 0.1) continue;
+      if (rand() < 0.75) p('box', x, yb, zz + (rand() - 0.5)*0.04, 0.15, 0.07 + rand()*0.04, 0.24, 0xffffff, (rand() - 0.5)*0.2, TL.bread(), -0.15);
+      else p('ball', x, yb, zz, 0.14, 0.08, 0.14, pick([0xd99a3e, 0xe8b25a, 0xc98232])); }
+  }
+  sign('甜心早餐', 'Breakfast & Bakery', 0.3, y + 2.1, -24.08, 0, 2.6, 0.62, '#b03a8c');
+  // --- snack gondolas: snack bags, cup noodles, biscuit boxes on both faces ---
+  for (const z of [-24.2, -21.2]) for (const [a, b] of [[3.4, 10.6]]){
+    boxS(a, z - 0.4, b, z + 0.4, y, y + 1.5, 'metal', {cam:false});
+    for (const sd of [-1, 1]) for (const yb of [0.1, 0.45, 0.8, 1.15]){
+      p('box', (a + b)/2, yb - 0.03, z + sd*0.47, b - a, 0.04, 0.14, 0xe8ecee);
+      p('box', (a + b)/2, yb - 0.06, z + sd*0.54, b - a, 0.05, 0.01, 0xffffff);                     // price strip
+      for (let x = a + 0.08; x < b - 0.08; ){
+        const T = Math.floor(rand()*3), end = Math.min(b - 0.08, x + 0.5 + rand()*0.6), t = T === 0 ? TL.snack() : T === 1 ? TL.noodle() : TL.biscuit();
+        for (; x < end; x += [0.15, 0.115, 0.14][T]) for (const dz of [0, 0.07]){
+          const zz = z + sd*(0.5 - dz);
+          if (T === 0) p('box', x, yb, zz, 0.14, 0.21 + rand()*0.03, 0.05, 0xffffff, 0, t, sd*0.08);
+          else if (T === 1){ p('cup', x, yb, zz, 0.105, 0.095, 0.105, 0xffffff, 0, t); p('cup', x, yb + 0.095, zz, 0.105, 0.095, 0.105, 0xffffff, 0, t); }
+          else p('box', x, yb, zz, 0.13, 0.17, 0.05, 0xffffff, 0, t);
+        }
+        x += 0.04;
+      }
+    }
+  }
+  // --- counter (wood top, white base) with hot food; the clerk area behind it ---
+  const CZ = [-20.0, -19.3];
+  boxS(-8.6, CZ[0], -2.6, CZ[1], y, y + 0.96, 'counter', {cam:false});
+  boxS(-3.3, -22.6, -2.6, CZ[0], y, y + 0.96, 'counter', {cam:false});
+  p('box', -5.6, 0.96, -19.65, 6.1, 0.04, 0.85, 0x8a6446); p('box', -2.95, 0.96, -21.3, 0.8, 0.04, 2.6, 0x8a6446);
+  const T0 = 1.0;
+  // tea-egg pot
+  p('cyl', -8.15, T0, -19.65, 0.4, 0.24, 0.4, 0xb0b5b8); for (let k = 0; k < 7; k++) p('ball', -8.15 + Math.cos(k)*0.1, T0 + 0.22, -19.65 + Math.sin(k)*0.1, 0.06, 0.05, 0.06, 0x5b3a22);
+  // roast sweet potatoes in a glass-front warmer
+  p('box', -7.45, T0, -19.65, 0.6, 0.1, 0.5, 0x6b4a2e); glass(-7.75, -19.9, -7.15, -19.4, T0 + 0.1, T0 + 0.55); p('box', -7.45, T0 + 0.55, -19.65, 0.62, 0.04, 0.52, 0x6b4a2e);
+  for (let k = 0; k < 8; k++) p('ball', -7.65 + (k % 4)*0.13, T0 + 0.1 + Math.floor(k/4)*0.05, -19.72 + Math.floor(k/4)*0.12, 0.13, 0.06, 0.07, 0x7a3b2e, rand());
+  // hot-dog roller under a clear cover
+  p('box', -6.55, T0, -19.65, 0.6, 0.14, 0.48, 0x1d1d1d); p('box', -6.55, T0 + 0.02, -19.4, 0.6, 0.11, 0.01, 0xffffff, 0, TL.snack.ids[5]);
+  for (let k = 0; k < 8; k++) p('rod', -6.55, T0 + 0.14, -19.83 + k*0.05, 0.42, 0.03, 0.03, 0xb5532a);
+  glass(-6.85, -19.88, -6.25, -19.42, T0 + 0.14, T0 + 0.36);
+  // two-tier pastry warmer
+  { const x0 = -5.95, x1 = -4.75;
+    for (const yb of [T0, T0 + 0.32, T0 + 0.62]) p('box', (x0 + x1)/2, yb, -19.65, x1 - x0, 0.03, 0.55, 0xc0c6ca);
+    for (const x of [x0, x1]) for (const z of [-19.92, -19.38]) p('box', x, T0, z, 0.03, 0.65, 0.03, 0xc0c6ca);
+    p('box', (x0 + x1)/2, T0 + 0.6, -19.65, x1 - x0, 0.02, 0.5, 0xfff3c4, 0, 0, 0, 1.0);
+    glass(x0, -19.92, x1, -19.38, T0 + 0.03, T0 + 0.62);
+    for (let k = 0; k < 6; k++){ p('ball', x0 + 0.15 + k*0.17, T0 + 0.03, -19.65, 0.13, 0.08, 0.13, pick([0xe0a63a, 0xd08a2e, 0xf0c060])); p('box', x0 + 0.15 + k*0.17, T0 + 0.35, -19.65, 0.11, 0.08, 0.09, pick([0xe8a83c, 0xf1c35a, 0x8a5a2b])); }
+  }
+  // tills (screen faces the clerk, small display faces the customer)
+  for (const x of [-4.0, -3.0]){ p('box', x, T0, -19.7, 0.36, 0.11, 0.3, 0x2b2d30); p('box', x, T0 + 0.11, -19.8, 0.32, 0.2, 0.02, 0xffffff, Math.PI, TL.till.ids[0], -0.25, 0.6); p('box', x + 0.25, T0, -19.45, 0.12, 0.08, 0.1, 0x3a3d42); }
+  sign('收銀台', 'Cashier', -3.5, y + 2.55, -19.6, 0, 1.6, 0.42, '#2f9e5a');
+  sign('熱狗 Hot Dog', '35元', -6.55, y + 2.2, -19.6, 0, 1.4, 0.42, '#c62828');
+  // back counter on the west wall: two microwaves, coffee machine, cup stacks; cigarette shelf above
+  boxS(-8.85, -26.0, -8.25, -20.2, y, y + 0.9, 'counter', {cam:false});
+  p('box', -8.55, 0.9, -23.1, 0.64, 0.04, 5.9, 0x8a6446);
+  for (const z of [-21.0, -21.6]){ p('box', -8.55, 0.94, z, 0.4, 0.3, 0.5, 0xeceff1, Math.PI/2); p('box', -8.345, 0.94, z, 0.5, 0.3, 0.01, 0xffffff, Math.PI/2, TL.microwave.ids[0]); }
+  p('box', -8.55, 0.94, -22.5, 0.45, 0.62, 0.42, 0x2b2d30, Math.PI/2); p('box', -8.32, 1.25, -22.5, 0.3, 0.18, 0.01, 0xffffff, Math.PI/2, TL.till.ids[0], 0, 0.5);
+  for (let k = 0; k < 3; k++) for (let j = 0; j < 4; j++) p('cup', -8.6, 0.94 + j*0.07, -23.2 - k*0.12, 0.08, 0.1, 0.08, k === 1 ? 0x8e1b2b : 0xffffff);
+  for (let r = 0; r < 5; r++) for (let x = -25.5; x < -20.6; x += 0.07) p('box', -8.78, 1.35 + r*0.22, x, 0.09, 0.09, 0.055, pick([0xffffff, 0x1d3557, 0xc1121f, 0xe9c46a, 0x2a9d8f, 0x6d6875]), Math.PI/2);
+  // ice-cream chest freezer (glass lid) + promo rack with noodle packs, near the front
+  boxS(5.2, -18.9, 7.6, -18.0, y, y + 0.78, 'fridge', {cam:false});
+  glass(5.25, -18.85, 7.55, -18.05, 0.78, 0.86);
+  for (let x = 5.35; x < 7.5; x += 0.15) for (let z = -18.8; z < -18.1; z += 0.15) p('box', x, 0.78, z, 0.13, 0.06, 0.13, 0xffffff, rand()*0.3, TL.icecream());
+  sign('冰淇淋', 'Ice Cream', 6.4, y + 1.15, -17.98, 0, 1.2, 0.35, '#1e88e5');
+  { const x0 = 8.6, x1 = 10.4, z0 = -18.9, z1 = -18.2;
+    for (const x of [x0, x1]) for (const z of [z0, z1]) p('box', x, 0, z, 0.03, 1.75, 0.03, 0x1d1d1d);
+    for (const yb of [0.25, 0.7, 1.15]){ p('box', (x0 + x1)/2, yb, (z0 + z1)/2, x1 - x0, 0.02, z1 - z0, 0x2b2b2b);
+      for (let x = x0 + 0.15; x < x1 - 0.1; x += 0.24) for (let k = 0; k < 4; k++) p('box', x, yb + 0.02 + k*0.06, (z0 + z1)/2 + 0.05, 0.22, 0.055, 0.16, 0xffffff, 0, TL.noodle.ids[k % 2 ? 0 : 1], -0.1); }
+    col(rect(x0, z0, x1, z1), y, y + 1.75, {cam:false});
+    sign('限定優惠專區', 'Special Offers', (x0 + x1)/2, y + 1.95, z1 + 0.02, 0, 1.8, 0.42, '#e53935');
+  }
+  // FamiPort kiosk beside the door + basket stack
+  boxS(-1.6, -17.0, -1.05, -16.55, y, y + 1.45, 'counter', {cam:false});
+  p('box', -1.6 + 0.275, 1.45, -16.775, 0.55, 0.06, 0.45, 0x2f9e5a);
+  p('box', -1.04, 0.95, -16.775, 0.38, 0.3, 0.01, 0xffffff, Math.PI/2, TL.kiosk.ids[0], 0.2, 0.6);
+  for (let k = 0; k < 5; k++) p('cup', -0.6, k*0.06, -17.2, 0.42, 0.22, 0.3, 0x2f9e5a);
+  // gashapon machines on the gallery outside (two stacked units per column, lime green, on castors)
+  for (let i = 0; i < 4; i++){
+    const x = 4.2 + i*0.5, z = -15.6, P2 = (k, yb, zz, sx, sy, sz, c, t = 0) => p(k, x, yb, zz, sx, sy, sz, c, 0, t);
+    P2('box', 0.04, z, 0.46, 0.34, 0.44, 0x9e9e9e);
+    for (const yb of [0.38, 0.95]){
+      P2('box', yb, z, 0.46, 0.55, 0.42, 0x9ed13a);
+      P2('box', yb + 0.24, z + 0.212, 0.36, 0.28, 0.01, 0xffffff, TL.gacha.ids[0]);
+      P2('cyl', yb + 0.06, z + 0.2, 0.09, 0.09, 0.03, [0xe53935, 0x1e88e5][i % 2]);
+    }
+    P2('box', 1.5, z, 0.48, 0.06, 0.44, 0x9e9e9e);
+  }
+  col(rect(3.95, -15.85, 5.95, -15.35), y, y + 1.56, {cam:false});
 }
 // --- 側門 side entrance hall (3F): theatre doors on the west wall, exit door on the north wall ---
 sign('活動中心 側門', 'Side Exit', SIDE_X, L[2] + 3.0, -BZ + 0.16, 0, 3, 0.6, '#2f4f63');
@@ -1553,7 +2001,7 @@ const BIKE = {x0:BXE, x1:BXE + 5.6, z0:-11, z1:BZ - 0.5, h:3.4, step:3.9, colR:0
 const TRIS = flush(); flushSigns(); flushProps();
 
 // door leaves (wood, instanced) + a metal handle on both faces
-const doorLeaf = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, DOOR_T).translate(0.5, 0.5, 0), mat(0x8a5f3c, {roughness:.55}), DOORS.length);
+const doorLeaf = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, DOOR_T).translate(0.5, 0.5, 0), mat(0xffffff, {roughness:.55}), DOORS.length);
 const doorKnob = new THREE.InstancedMesh(mergeGeometries([-1, 1].map(sd => new THREE.BoxGeometry(0.14, 0.035, 0.05).translate(0, 0, sd*(DOOR_T/2 + 0.03)))), MAT.steel, DOORS.length);
 doorLeaf.castShadow = doorLeaf.receiveShadow = true;
 function placeDoor(i){
@@ -1563,7 +2011,7 @@ function placeDoor(i){
   doorLeaf.setMatrixAt(i, M.clone().multiply(new THREE.Matrix4().makeScale(D.w - 0.04, D.h - 0.03, 1)));
   doorKnob.setMatrixAt(i, M.multiply(new THREE.Matrix4().makeTranslation(D.w - 0.16, 1.0, 0)));
 }
-DOORS.forEach((D, i) => placeDoor(i));
+DOORS.forEach((D, i) => { placeDoor(i); doorLeaf.setColorAt(i, new THREE.Color(D.color)); });
 scene.add(doorLeaf, doorKnob);
 function setDoor(D, open){
   if (!open && Math.hypot(player.pos.x - D.c[0], player.pos.z - D.c[1]) < R + 0.15) return;   // someone is standing in the doorway
@@ -1630,7 +2078,8 @@ scene.add(player.obj);
 // The free base mesh only comes in underwear, so clothes are painted on in the shader from the skin weights:
 // vertices driven by spine/clavicle/upper-arm bones → T-shirt, pelvis/thigh/calf → jeans, foot/ball → shoes.
 // Loads in the background; the box character above stays until it is ready (and is the fallback if loading fails).
-const SHIRT = new THREE.Color().setHSL(rand(), .55, .45), JEANS = new THREE.Color(0x2c3e5c), SHOES = new THREE.Color(0xc9c6c0), HAIR = new THREE.Color(0x1d1714);
+const SHIRT_C = [0x2b4c7e, 0xb23a48, 0x2e7d4f, 0xf2f2f2, 0x26282b, 0x1f8a8a, 0xe0b23a, 0x6a4c93, 0x4f6d8f];   // never skin-coloured
+const SHIRT = new THREE.Color(SHIRT_C[Math.floor(Math.random()*SHIRT_C.length)]),JEANS = new THREE.Color(0x2c3e5c), SHOES = new THREE.Color(0xc9c6c0), HAIR = new THREE.Color(0x1d1714);
 const CLOTH_PUFF = [0.03, 0.018, 0.02];   // metres the shirt / jeans / shoes stand off the body
 // The free base meshes are "superhero" builds. SLIM pulls each vertex toward its bones' axes (bind pose, before skinning)
 // by this fraction: thinner chest, arms and legs, so the student looks like an ordinary person. Bone axis = bone → BONE_END child.
@@ -1680,10 +2129,15 @@ async function loadFurniture(){
   for (const k of Object.keys(FURN)){
     const list = FURN[k]; if (!list.length) continue;
     const g = await ld.loadAsync(`models/${k}.glb`); g.scene.updateMatrixWorld(true);
+    const cells = new Map();
+    for (const it of list){ const key = Math.floor(it[0]/PCELL) + ',' + Math.floor(it[2]/PCELL) + ',' + Math.floor((it[1] + 0.5)/H); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(it); }
     g.scene.traverse(o => { if (!o.isMesh) return;
-      const im = new THREE.InstancedMesh(o.geometry, o.material, list.length);
-      list.forEach(([x, y, z, r], i) => im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromAxisAngle(UP, r), S1).multiply(o.matrixWorld)));
-      im.castShadow = im.receiveShadow = true; scene.add(im);
+      for (const [key, items] of cells){
+        const im = new THREE.InstancedMesh(o.geometry, o.material, items.length);
+        items.forEach(([x, y, z, r], i) => im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromAxisAngle(UP, r), S1).multiply(o.matrixWorld)));
+        im.computeBoundingSphere(); im.receiveShadow = true; scene.add(im);   // indoor: no sun shadow worth its cost
+        const [cx, cz, fl] = key.split(',').map(Number); PROP_GROUPS.push({im, x:(cx + 0.5)*PCELL, z:(cz + 0.5)*PCELL, y:fl*H + 1.5});
+      }
     });
   }
 }
@@ -1919,6 +2373,7 @@ function step(dt){
   }
   if (dt > 0) move(dt);
   updateDoors(dt); if (running) doorUI();
+  cullProps();
   const p = player.pos, o = player.obj, u = o.userData;
   const visY = p.y - player.stepVis;
   o.position.set(p.x, visY, p.z); o.rotation.y = player.heading;
@@ -2097,6 +2552,9 @@ function runTests(){
     ['Front row → stage → back stage → outside', [-56, 0, -23], [[-56.4, -19.3], [-60, -19.3], [-66, -18], [-70, -18], [-71, -33], [-82, -33]], 0],
     ['Indoor stair 1F → 4F (via corridor 2)', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(3), [SQX, 17.5]], 12],
     ['Indoor stair 1F → 3F', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(2), [SQX, 17.5]], 8],
+    ['Stair door → restroom entrance → men (left) → past the cubicles', [-62.5, 0, 17.5], [[-62.5, 14.8], [-65.6, 14.8], [-64.2, 12.6], [-64.2, 8.5]], 0],
+    ['Stair door → restroom entrance → women (right) → between the cubicles', [-62.5, 8, 17.5], [[-62.5, 14.8], [-59.6, 14.8], [-60.25, 12.8], [-60.25, 8.5]], 8],
+    ['Restroom: corridor wall beside the entrance blocks', [-65.6, 12, 17.5], [[-65.6, 13]], 12, true],
     ['Corridor 2 → restaurant 1F → lake shore', [-26, 0, 17.5], [[-31, 17.5], [-31, 21], [-37, 22], [-37, 40]], 0],
     ['3F side door → outdoor stair', [SIDE_X, 8, -20], [[SIDE_X, -27], [SIDE_X, -30.5], [SIDE_X, -53]], 0],
     ['3F bridge (north gallery → south-west corner)', [18.5, 8, -14], [[18.5, -12.5], [-25.1, 21]], 8],
