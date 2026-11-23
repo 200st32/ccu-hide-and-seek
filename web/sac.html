@@ -40,6 +40,10 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 #start p{margin:0 0 18px;color:#4a5a4d}
 #start button{font:800 16px "Noto Sans TC",sans-serif;padding:12px 26px;min-height:44px;border:0;border-radius:999px;background:#c8553d;color:#fff;cursor:pointer}
 #start button:focus-visible{outline:3px solid #ffd34d;outline-offset:3px}
+#start #pick{display:flex;gap:8px;justify-content:center;align-items:center;margin:0 0 16px;padding:0;background:none;box-shadow:none;border-radius:0;max-width:none}
+#start #pick span{font-size:13px;color:#4a5a4d;margin-right:4px}
+#start #pick button{background:#eef1ec;color:#1d2a1f;padding:8px 18px;min-height:40px;font-size:15px;border:2px solid transparent}
+#start #pick button[aria-pressed="true"]{background:#fff4ef;border-color:#c8553d;color:#c8553d}
 #start a{display:block;margin-top:14px;font-size:13px;color:#2a6e9f}
 #joy{position:fixed;width:110px;height:110px;border-radius:50%;border:2px solid rgba(255,255,255,.6);display:none;pointer-events:none}
 #joy i{position:absolute;left:50%;top:50%;width:44px;height:44px;margin:-22px;border-radius:50%;background:rgba(255,255,255,.7)}
@@ -77,7 +81,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 <div class="hud" id="mhelp">左半邊拖曳移動（推到底衝刺）· 右半邊拖曳看 <br>Drag left side to move (push far to sprint) · drag right side to look</div>
 <pre id="testout"></pre>
 <pre id="stats"></pre>
-<div id="start"><div><h1>中正大學 活動中心</h1><p>Explore all four floors of the Student Activity Center. The main entrance is on 3F. 正門在三樓，小吃街在一樓。</p><button id="go">開始 Start</button><a href="index.html">← Whole campus 全校園</a></div></div>
+<div id="start"><div><h1>中正大學 活動中心</h1><p>Explore all four floors of the Student Activity Center. The main entrance is on 3F. 正門在三樓，小吃街在一樓。</p><div id="pick" role="group" aria-label="Character 角色"><span>角色 Character</span><button type="button" data-sex="m" aria-pressed="true">男 Male</button><button type="button" data-sex="f" aria-pressed="false">女 Female</button></div><button id="go">開始 Start</button><a href="index.html">← Whole campus 全校園</a></div></div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -160,7 +164,7 @@ const EX = 40, EZ = -2;            // east block (健康中心 3F; 熱音社 + �
 const HW_X = 37;                   // 3F walkway outside 健康中心: x HW_X..EX (west face) and z EZ-3..EZ (north face)
 const MPZ = -5.5;                  // 1F path (red arrow) between the grand stair and the east block: z MPZ..EZ
 const SLOT = [-2.5, 7.5];          // west block slot, open to the sky: slope (2F west gallery → ground outside) + 1F path beside it
-const SHOP_X = [-50, -39, WX];   // 1F shops facing the path beside the slope: 郵局 Post Office | 美妝小舖 Cosmetics
+const SHOP_X = [-61, -50, WX];   // 1F shops facing the path beside the slope: 美妝小舖 Cosmetics | 郵局 Post Office (2× wide)
 const SLOPE_Z1 = 2;                // 1F path z SLOT[0]..SLOPE_Z1 (north), slope z SLOPE_Z1..SLOT[1] (south)
 const TN = -39.5, TZ1 = -15;       // 演藝廳: x BXW..WX, z TN..TZ1, full height (sticks out north of the main block)
 const BSX = -67, SX = -57;         // 演藝廳: back stage x BXW..BSX, stage BSX..SX, seats SX..WX
@@ -1115,11 +1119,11 @@ for (let f = 0; f < 4; f++){
 }
 // band 1 (between the theatre and the slope), rooms open north onto corridor 1 (along the theatre wall)
 // 1F: two offices open north onto corridor 1; the post office and the cosmetics shop open south onto the path beside the slope
-rowX(0, C1Z[1], SLOT[0], 'n', [BXW, -63, SHOP_X[0]], [{n:'學務處 Student Affairs', k:'office', doors:[-70]}, {n:'課外活動組 Extracurricular Activities', k:'office', doors:[-57]}]);
+rowX(0, C1Z[1], SLOT[0], 'n', [BXW, -68.5, SHOP_X[0]], [{n:'學務處 Student Affairs', k:'office', doors:[-72.5]}, {n:'課外活動組 Extracurricular Activities', k:'office', doors:[-65]}]);
 wseg(SHOP_X[0], C1Z[1], SHOP_X[0], SLOT[0], 0, L[1] - SL, 'wall');
 rowX(0, C1Z[1], SLOT[0], 's', SHOP_X, [
-  {n:'郵局 Post Office', k:'post', glass:true, top:'brick', doors:[-44.5], signW:3.6, signH:0.8, signY:3.35, signBg:'#2f7d3b'},
-  {n:'美妝小舖 Cosmetics', k:'beauty', glass:true, top:'brick', doors:[-33.5], signW:3.6, signH:0.8, signY:3.35, signBg:'#d5577f'}]);
+  {n:'美妝小舖 Cosmetics', k:'beauty', glass:true, top:'brick', doors:[-55.5], signW:3.6, signH:0.8, signY:3.35, signBg:'#d5577f'},
+  {n:'郵局 Post Office', k:'post', glass:true, top:'brick', doors:[-44, -34], signU:11, signW:4.6, signH:0.95, signY:3.4, signBg:'#2f7d3b'}]);
 for (const [x, key] of [[-48.4, 'postR'], [-47.6, 'postG']]){                 // mailboxes on the path
   boxS(x - 0.3, SLOT[0] + 0.5, x + 0.3, SLOT[0] + 1.0, 0, 1.05, key);
   put(prismGeo(rect(x - 0.34, SLOT[0] + 0.46, x + 0.34, SLOT[0] + 1.04), 1.05, 1.15), key);
@@ -1454,7 +1458,10 @@ const player = {
   obj: makeCharacter(new THREE.Color().setHSL(rand(), .65, .5)),
   pos: new THREE.Vector3(...SPAWN), vy: 0, onGround: true, heading: SPAWN_YAW - Math.PI, stamina: 1, phase: 0, speed: 0, prep: 0, land: 0, air: 0, spaceWas: false, stepVis: 0,
 };
-const SC = 1.75 / 2.85;               // model is 2.85 units tall -> 1.75 m person
+// Character size: Kai asked for 1.5× a real person (easier to see in third person). Visual only: the collision cylinder
+// (R, HEAD) stays person-sized so doors, stairs and ceilings work as before; heads may poke through 2.4 m door tops.
+const CHAR_SCALE = 1.5, CHAR_H = {m: 1.75 * CHAR_SCALE, f: 1.65 * CHAR_SCALE};
+const SC = CHAR_H.m / 2.85;           // box fallback model is 2.85 units tall
 player.obj.scale.setScalar(SC);
 scene.add(player.obj);
 
@@ -1462,7 +1469,7 @@ scene.add(player.obj);
 // The free base mesh only comes in underwear, so clothes are painted on in the shader from the skin weights:
 // vertices driven by spine/clavicle/upper-arm bones → T-shirt, pelvis/thigh/calf → jeans, foot/ball → shoes.
 // Loads in the background; the box character above stays until it is ready (and is the fallback if loading fails).
-const CHAR_H = 1.75, SHIRT = new THREE.Color().setHSL(rand(), .55, .45), JEANS = new THREE.Color(0x2c3e5c), SHOES = new THREE.Color(0xc9c6c0), HAIR = new THREE.Color(0x1d1714);
+const SHIRT = new THREE.Color().setHSL(rand(), .55, .45), JEANS = new THREE.Color(0x2c3e5c), SHOES = new THREE.Color(0xc9c6c0), HAIR = new THREE.Color(0x1d1714);
 const CLOTH_PUFF = [0.03, 0.018, 0.02];   // metres the shirt / jeans / shoes stand off the body
 const CLOTH_BONES = {shirt:/^(spine_0[123]|clavicle_[lr]|upperarm_[lr])$/, jeans:/^(pelvis|thigh_[lr]|calf_[lr])$/, shoes:/^(foot_[lr]|ball_[lr]|ball_leaf_[lr])$/};
 // clip speeds (m/s at timeScale 1) used to match the feet to the ground speed
@@ -1487,10 +1494,13 @@ function clothe(mesh){
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.92, cm);');
   };
 }
-async function loadStudent(){
-  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
-  const ld = new GLTFLoader();
-  const [body, hair, anims] = await Promise.all(['models/student.glb', 'models/hair.glb', 'models/anims.glb'].map(u => ld.loadAsync(u)));
+let gltfLoader = null, animsP = null, loadTok = 0;
+async function loadStudent(sex){
+  const tok = ++loadTok;
+  if (!gltfLoader){ const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'); gltfLoader = new GLTFLoader(); }
+  animsP ??= gltfLoader.loadAsync('models/anims.glb');
+  const [body, hair, anims] = await Promise.all([gltfLoader.loadAsync(`models/student_${sex}.glb`), gltfLoader.loadAsync(`models/hair_${sex}.glb`), animsP]);
+  if (tok !== loadTok) return;                                    // the player picked the other one meanwhile
   const root = body.scene, bonesByName = {};
   root.traverse(o => { if (o.isBone) bonesByName[o.name] = o; });
   root.traverse(o => { if (o.isSkinnedMesh){ o.castShadow = true; o.frustumCulled = false; if (/Hair/.test(o.material.name)) o.material.color.copy(HAIR); else if (/Superhero/.test(o.material.name)) clothe(o); } });
@@ -1500,7 +1510,7 @@ async function loadStudent(){
     const m = new THREE.SkinnedMesh(o.geometry, o.material); m.bind(sk, o.bindMatrix); m.castShadow = true; m.frustumCulled = false;
     m.material.color.copy(HAIR); root.add(m);
   } });
-  const box = new THREE.Box3().setFromObject(root), s = CHAR_H / (box.max.y - box.min.y);
+  const box = new THREE.Box3().setFromObject(root), s = CHAR_H[sex] / (box.max.y - box.min.y);
   root.scale.setScalar(s); root.position.y = -box.min.y * s;
   const mixer = new THREE.AnimationMixer(root), act = {};
   for (const c of anims.animations){ const a = act[c.name] = mixer.clipAction(c); a.play(); a.setEffectiveWeight(0); }
@@ -1508,9 +1518,18 @@ async function loadStudent(){
   for (const ch of [...player.obj.children]) player.obj.remove(ch);
   player.obj.scale.setScalar(1);
   player.obj.add(root);
-  player.rig = {mixer, act, land: 0};
+  player.rig = {mixer, act, land: 0, sex};
 }
-if (!Q.has('boxman')) loadStudent().catch(e => console.warn('student model not loaded, keeping the box character:', e));
+// male / female: chosen on the start screen (remembered in this browser), ?char=m|f overrides
+let charSex = Q.get('char') || (() => { try { return localStorage.getItem('sacChar'); } catch { return null; } })() || 'm';
+if (charSex !== 'f') charSex = 'm';
+function pickChar(sex){
+  charSex = sex; try { localStorage.setItem('sacChar', sex); } catch {}
+  document.querySelectorAll('#pick button').forEach(b => b.setAttribute('aria-pressed', b.dataset.sex === sex));
+  if (!Q.has('boxman') && player.rig?.sex !== sex) loadStudent(sex).catch(e => console.warn('student model not loaded, keeping the current character:', e));
+}
+document.querySelectorAll('#pick button').forEach(b => b.addEventListener('click', () => pickChar(b.dataset.sex)));
+pickChar(charSex);
 // blend idle / walk / jog / sprint by ground speed (each clip sped up to match it), jump loop in the air, a short landing pose
 function animateRig(dt){
   const r = player.rig, A = r.act, v = player.speed, air = player.air;
@@ -1717,7 +1736,7 @@ function step(dt){
   // lifted to at least CAM_FLOOR above the floor under it (ray cast down with groundAt), so the camera slides along the
   // floor instead of going under it; it then looks along the view direction (so looking up shows the roof, not the avatar).
   // Signs, railings and glass have no camera collider (cam:false), so they never pull the camera in.
-  camTarget.set(p.x, visY + 1.5, p.z);
+  camTarget.set(p.x, visY + 1.5 * CHAR_SCALE, p.z);
   camDir.set(Math.sin(yaw)*Math.cos(pitch), Math.sin(pitch), Math.cos(yaw)*Math.cos(pitch)).normalize();
   const camAt = t => { const x = camTarget.x + camDir.x*t, z = camTarget.z + camDir.z*t, y = camTarget.y + camDir.y*t;
     return [x, Math.max(y, groundAt(x, z, Math.max(y, camTarget.y - 1.5) + 0.3 - STEP) + CAM_FLOOR), z]; };
@@ -1891,9 +1910,9 @@ function runTests(){
     ['Plaza → snack street', [0, 0, -10], [[0, -17], [0, -23]], 0],
     ['3F south walkway → counselling', [30, 8, 25], [[42, 25]], 8],
     ['Plaza → open south side → lake shore', [0, 0, 10], [[0, 42]], 0],
-    ['Plaza → corridor 1 (along the theatre) → 學務處', [-20, 0, -13.5], [[-70, -13.5], [-70, -9]], 0],
-    ['Atrium → path beside the slope → 郵局 Post Office', [-20, 0, -0.25], [[-44.5, -0.25], [-44.5, -5]], 0],
-    ['Atrium → path beside the slope → 美妝小舖 Cosmetics', [-20, 0, -0.25], [[-33.5, -0.25], [-33.5, -4], [-36.5, -4], [-36.5, -8]], 0],
+    ['Plaza → corridor 1 (along the theatre) → 學務處', [-20, 0, -13.5], [[-72.5, -13.5], [-72.5, -9]], 0],
+    ['Atrium → path beside the slope → 郵局 Post Office', [-20, 0, -0.25], [[-34, -0.25], [-34, -5]], 0],
+    ['Atrium → path beside the slope → 美妝小舖 Cosmetics', [-20, 0, -0.25], [[-55.5, -0.25], [-55.5, -4], [-58.5, -4], [-58.5, -8]], 0],
     ['Plateau → bike shelter, between the bikes and the pillars', [60, 8, -14], [[59.8, -14], [59.8, 26]], 8],
     ['Wall blocks (2F gallery → room front, no door)', [6, 4, -14], [[6, -20]], 4, true],
     ['Railing blocks (3F gallery → void)', [0, 8, -14], [[0, -8]], 8, true],

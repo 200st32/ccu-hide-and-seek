@@ -8,8 +8,8 @@ Sources (CC0, by Quaternius — free "Standard" downloads from itch.io, not kept
 Usage:
   python3 tools/pack_character.py <UBC folder> <UAL folder> web/models
 
-Writes  student.glb  (body + eyes + eyebrows, light skin, 1024 px JPEG textures)
-        hair.glb     (Hair_SimpleParted, rigged to the same skeleton)
+Writes  student_m.glb / student_f.glb  (body + eyes + eyebrows, light skin, 1024 px JPEG textures)
+        hair_m.glb / hair_f.glb        (Hair_SimpleParted / Hair_Long, rigged to the same skeleton)
         anims.glb    (skeleton nodes + only the clips the game uses)
 """
 import io, json, os, struct, sys
@@ -92,9 +92,16 @@ def repack(g, bins, images, path, keep_accessors=None):
 def main(ubc, ual, out):
     os.makedirs(out, exist_ok=True)
     bc = os.path.join(ubc, 'Base Characters')
+    for sex, body, light, hairName in [('m', 'Superhero_Male_FullBody', 'T_Superhero_Male_Ligh.png', 'Hair_SimpleParted'),
+                                       ('f', 'Superhero_Female_FullBody', 'T_Superhero_Female_Light_BaseColor.png', 'Hair_Long')]:
+        pack_body(bc, ubc, out, sex, body, light, hairName)
+    pack_anims(ual, out)
+
+
+def pack_body(bc, ubc, out, sex, body, light, hairName):
     # --- body: swap the dark skin for the light one, drop the roughness map, shrink textures ---
-    g, bins, base = read_gltf(os.path.join(bc, 'Godot - UE', 'Superhero_Male_FullBody.gltf'))
-    src = {'T_Superhero_Male_Dark': os.path.join(bc, 'Textures', 'T_Superhero_Male_Ligh.png')}
+    g, bins, base = read_gltf(os.path.join(bc, 'Godot - UE', body + '.gltf'))
+    src = {n: os.path.join(bc, 'Textures', light) for n in ('T_Superhero_Male_Dark', 'T_Superhero_Female_Dark_BaseColor')}
     imgs = []
     for im in g['images']:
         p = src.get(im['name'], os.path.join(base, im['uri']))
@@ -105,13 +112,16 @@ def main(ubc, ual, out):
         pbr = m['pbrMetallicRoughness']
         if 'metallicRoughnessTexture' in pbr: del pbr['metallicRoughnessTexture']; pbr['roughnessFactor'] = 0.62
     for t in g.get('textures', []): t['sampler'] = 0
-    repack(g, bins, imgs, os.path.join(out, 'student.glb'))
+    repack(g, bins, imgs, os.path.join(out, f'student_{sex}.glb'))
     # --- hair ---
-    hp = os.path.join(ubc, 'Hairstyles', 'Rigged to Head Bone', 'glTF (Godot -Unreal)', 'Hair_SimpleParted.gltf')
+    hp = os.path.join(ubc, 'Hairstyles', 'Rigged to Head Bone', 'glTF (Godot -Unreal)', hairName + '.gltf')
     g, bins, base = read_gltf(hp)
     imgs = [jpeg(os.path.join(base, im['uri']), 512) for im in g['images']]
     for t in g.get('textures', []): t['sampler'] = 0
-    repack(g, bins, imgs, os.path.join(out, 'hair.glb'))
+    repack(g, bins, imgs, os.path.join(out, f'hair_{sex}.glb'))
+
+
+def pack_anims(ual, out):
     # --- animations: keep the skeleton nodes and the listed clips only ---
     g, bins = read_glb(os.path.join(ual, 'Unreal-Godot', 'UAL1_Standard.glb'))
     anims = [a for a in g['animations'] if a['name'] in CLIPS]
