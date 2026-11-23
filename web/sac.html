@@ -1121,6 +1121,7 @@ for (let f = 0; f < 4; f++){
 // 1F: two offices open north onto corridor 1; the post office and the cosmetics shop open south onto the path beside the slope
 rowX(0, C1Z[1], SLOT[0], 'n', [BXW, -68.5, SHOP_X[0]], [{n:'學務處 Student Affairs', k:'office', doors:[-72.5]}, {n:'課外活動組 Extracurricular Activities', k:'office', doors:[-65]}]);
 wseg(SHOP_X[0], C1Z[1], SHOP_X[0], SLOT[0], 0, L[1] - SL, 'wall');
+wallLine(SHOP_X[0], C1Z[1], WX, C1Z[1], 0, L[1] - SL, 'wallWin', [], {lintel:'wall'});   // back wall of the shops (corridor 1 side)
 rowX(0, C1Z[1], SLOT[0], 's', SHOP_X, [
   {n:'美妝小舖 Cosmetics', k:'beauty', glass:true, top:'brick', doors:[-55.5], signW:3.6, signH:0.8, signY:3.35, signBg:'#d5577f'},
   {n:'郵局 Post Office', k:'post', glass:true, top:'brick', doors:[-44, -34], signU:11, signW:4.6, signH:0.95, signY:3.4, signBg:'#2f7d3b'}]);
@@ -1458,9 +1459,9 @@ const player = {
   obj: makeCharacter(new THREE.Color().setHSL(rand(), .65, .5)),
   pos: new THREE.Vector3(...SPAWN), vy: 0, onGround: true, heading: SPAWN_YAW - Math.PI, stamina: 1, phase: 0, speed: 0, prep: 0, land: 0, air: 0, spaceWas: false, stepVis: 0,
 };
-// Character size: Kai asked for 1.5× a real person (easier to see in third person). Visual only: the collision cylinder
+// Character size: Kai asked for a bit bigger than a real person (1.5× was too big) (easier to see in third person). Visual only: the collision cylinder
 // (R, HEAD) stays person-sized so doors, stairs and ceilings work as before; heads may poke through 2.4 m door tops.
-const CHAR_SCALE = 1.5, CHAR_H = {m: 1.75 * CHAR_SCALE, f: 1.65 * CHAR_SCALE};
+const CHAR_SCALE = 1.2, CHAR_H = {m: 1.75 * CHAR_SCALE, f: 1.65 * CHAR_SCALE};
 const SC = CHAR_H.m / 2.85;           // box fallback model is 2.85 units tall
 player.obj.scale.setScalar(SC);
 scene.add(player.obj);
@@ -1471,17 +1472,35 @@ scene.add(player.obj);
 // Loads in the background; the box character above stays until it is ready (and is the fallback if loading fails).
 const SHIRT = new THREE.Color().setHSL(rand(), .55, .45), JEANS = new THREE.Color(0x2c3e5c), SHOES = new THREE.Color(0xc9c6c0), HAIR = new THREE.Color(0x1d1714);
 const CLOTH_PUFF = [0.03, 0.018, 0.02];   // metres the shirt / jeans / shoes stand off the body
+// The free base meshes are "superhero" builds. SLIM pulls each vertex toward its bones' axes (bind pose, before skinning)
+// by this fraction: thinner chest, arms and legs, so the student looks like an ordinary person. Bone axis = bone → BONE_END child.
+const SLIM = {spine_01:0.16, spine_02:0.2, spine_03:0.24, clavicle_l:0.3, clavicle_r:0.3, upperarm_l:0.34, upperarm_r:0.34, lowerarm_l:0.24, lowerarm_r:0.24,
+  neck_01:0.25, thigh_l:0.14, thigh_r:0.14, calf_l:0.12, calf_r:0.12};
+const BONE_END = {spine_01:'spine_02', spine_02:'spine_03', spine_03:'neck_01', neck_01:'Head', clavicle_l:'upperarm_l', clavicle_r:'upperarm_r',
+  upperarm_l:'lowerarm_l', upperarm_r:'lowerarm_r', lowerarm_l:'hand_l', lowerarm_r:'hand_r', thigh_l:'calf_l', thigh_r:'calf_r', calf_l:'foot_l', calf_r:'foot_r'};
+const SKIN_DETAIL = 0.45;                  // normal-map strength on bare skin (less sculpted muscle)
 const CLOTH_BONES = {shirt:/^(spine_0[123]|clavicle_[lr]|upperarm_[lr])$/, jeans:/^(pelvis|thigh_[lr]|calf_[lr])$/, shoes:/^(foot_[lr]|ball_[lr]|ball_leaf_[lr])$/};
 // clip speeds (m/s at timeScale 1) used to match the feet to the ground speed
 const LOCO = [['Idle_Loop', 0], ['Walk_Loop', 1.5], ['Jog_Fwd_Loop', 4.2], ['Sprint_Loop', 6.8]];
 function clothe(mesh){
   const bones = mesh.skeleton.bones, cat = bones.map(b => new THREE.Vector3(+CLOTH_BONES.shirt.test(b.name), +CLOTH_BONES.jeans.test(b.name), +CLOTH_BONES.shoes.test(b.name)));
   const m = mesh.material;
+  if (m.normalScale) m.normalScale.multiplyScalar(SKIN_DETAIL);
+  // bone axes in the mesh's own (bind) space: bindMatrixInverse · inverse(boneInverse) · origin
+  const idx = Object.fromEntries(bones.map((b, i) => [b.name, i]));
+  const bindPos = i => new THREE.Vector3().applyMatrix4(new THREE.Matrix4().copy(mesh.skeleton.boneInverses[i]).invert()).applyMatrix4(mesh.bindMatrixInverse);
+  const segA = bones.map((b, i) => bindPos(i)), segB = bones.map((b, i) => BONE_END[b.name] in idx ? bindPos(idx[BONE_END[b.name]]) : segA[i].clone());
+  const slimK = bones.map(b => SLIM[b.name] || 0);
   m.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, {boneCat:{value:cat}, cShirt:{value:SHIRT}, cJeans:{value:JEANS}, cShoes:{value:SHOES}});
+    Object.assign(sh.uniforms, {boneCat:{value:cat}, segA:{value:segA}, segB:{value:segB}, slimK:{value:slimK}, cShirt:{value:SHIRT}, cJeans:{value:JEANS}, cShoes:{value:SHOES}});
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', `#include <common>\nuniform vec3 boneCat[${cat.length}];\nvarying vec3 vCloth;`)
+      .replace('#include <common>', `#include <common>\nuniform vec3 boneCat[${cat.length}], segA[${cat.length}], segB[${cat.length}];\nuniform float slimK[${cat.length}];\nvarying vec3 vCloth;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+  { vec3 slimD = vec3(0.0);
+    for (int k = 0; k < 4; k++){ int b = int(skinIndex[k]); vec3 a = segA[b], ab = segB[b] - a;
+      float t = clamp(dot(transformed - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+      slimD += skinWeight[k] * slimK[b] * (a + ab*t - transformed); }
+    transformed += slimD; }
   vCloth = skinWeight.x*boneCat[int(skinIndex.x)] + skinWeight.y*boneCat[int(skinIndex.y)] + skinWeight.z*boneCat[int(skinIndex.z)] + skinWeight.w*boneCat[int(skinIndex.w)];
   transformed += objectNormal * dot(smoothstep(vec3(0.3), vec3(0.7), vCloth), vec3(${CLOTH_PUFF.join(', ')}));   // cloth sits a little off the skin`);
     sh.fragmentShader = sh.fragmentShader

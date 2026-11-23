@@ -61,7 +61,7 @@ the official floor map) + Kai's description. Standalone page (index.html links t
   at street level, left of the main doors as you face them: round stone pillars, flat roof, precast edge beam with a notched top,
   instanced bikes (one low collider per run of bikes, cam:false).
 - Player model: rigged CC0 Quaternius character, male or female (start-screen choice, remembered in localStorage, `?char=m|f`),
-  drawn at `CHAR_SCALE` = 1.5× real size at Kai's request (visual only: collision stays person-sized), (`web/models/`, packed by `tools/pack_character.py`, credits in `CREDITS.md`),
+  drawn at `CHAR_SCALE` = 1.2× real size and slimmed in the vertex shader (`SLIM`: vertices pulled toward bone axes) (visual only: collision stays person-sized), (`web/models/`, packed by `tools/pack_character.py`, credits in `CREDITS.md`),
   loaded in the background by GLTFLoader (the box character is the fallback, e.g. under `file://` or `?boxman`). Clothes are
   painted in `onBeforeCompile` from skin weights (WebGL path only; `?gpu` shows the bare base mesh). Animation: idle/walk/jog/sprint
   blended by ground speed (`LOCO` clip speeds), jump loop in the air, landing pose. `?shot=…,dist,turn` rotates the character.
