@@ -56,6 +56,14 @@ the official floor map) + Kai's description. Standalone page (index.html links t
     west block's south rooms (low 1.1 m wall around it, planters + benches). HUD shows `RF` there.
   - One diagonal 3F bridge (green in the drawing) from the north gallery to
     the south-west corner. South side has no rooms: open 2F/3F walkways facing the lake. 1F north = 小吃街.
+- Additions after Kai's review: 郵局 Post Office + 美妝小舖 Cosmetics on 1F facing the path beside the slope (`SHOP_X`, glass fronts,
+  mailboxes on the path; 學務處 / 課外活動組 moved west and still open onto corridor 1); bike shelter (`BIKE`) along the east face
+  at street level, left of the main doors as you face them: round stone pillars, flat roof, precast edge beam with a notched top,
+  instanced bikes (one low collider per run of bikes, cam:false).
+- Player model: rigged CC0 Quaternius character (`web/models/`, packed by `tools/pack_character.py`, credits in `CREDITS.md`),
+  loaded in the background by GLTFLoader (the box character is the fallback, e.g. under `file://` or `?boxman`). Clothes are
+  painted in `onBeforeCompile` from skin weights (WebGL path only; `?gpu` shows the bare base mesh). Animation: idle/walk/jog/sprint
+  blended by ground speed (`LOCO` clip speeds), jump loop in the air, landing pose. `?shot=…,dist,turn` rotates the character.
 - Collision: every solid is a vertical prism (polygon + holes, y0..y1 or y0..top(x,z) for ramps); player = cylinder
   (R 0.35, HEAD 1.8, STEP 0.5) with push-out, ground snapping, ceilings; helix colliders available (unused now); uniform grid.
   Stairs are drawn as steps but walked as smooth ramps. Camera ray-marches the same colliders.
@@ -73,7 +81,7 @@ the official floor map) + Kai's description. Standalone page (index.html links t
   - Performance: pixel ratio cap 1.5 + dynamic resolution (drops once, floor 1.0, if frames > 18.5 ms); one shadow
     light with a tight shadow camera fitted to `SHADOW_BOX`, 2048 map. Measured on Kai's MacBook (Intel Iris Plus),
     1280×760: ≥ 60 fps with AO, ~120 draw calls (settles at pixel ratio 1.0; ~32–39 fps at a fixed 1.5).
-- Debug: `?test` walks 50 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
+- Debug: `?test` walks 53 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
   `?shot=x,y,z,yaw,pitch,dist[&nohud]` places player/camera for screenshots. Headless Chrome works with `file://`
   + `--allow-file-access-from-files --use-angle=swiftshader --enable-unsafe-swiftshader`.
   F3 / `?stats` = stats overlay (fps, draw calls, triangles, textures). `?bench=x,y,z,yaw,pitch,dist` = 6 s warm-up +
