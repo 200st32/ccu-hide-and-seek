@@ -8,3 +8,12 @@
 
 Rebuild with `python3 tools/pack_character.py <UBC folder> <UAL folder> web/models` (needs Pillow).
 Clothes (T-shirt, jeans, shoes) are not in the model: `sac.html` paints them on in the shader from the skin weights.
+
+## Furniture — CC0 1.0, Poly Haven (https://polyhaven.com)
+
+| File | Poly Haven model |
+|---|---|
+| `table.glb` | `wooden_table_02` — https://polyhaven.com/a/wooden_table_02 |
+| `chair.glb` | `plastic_monobloc_chair_01` — https://polyhaven.com/a/plastic_monobloc_chair_01 |
+
+Packed from the 1k glTF download with `python3 tools/pack_props.py <folder> web/models/<name>.glb` (512 px JPEG textures).

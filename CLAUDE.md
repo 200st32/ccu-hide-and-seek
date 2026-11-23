@@ -60,6 +60,12 @@ the official floor map) + Kai's description. Standalone page (index.html links t
   mailboxes on the path; 學務處 / 課外活動組 moved west and still open onto corridor 1); bike shelter (`BIKE`) along the east face
   at street level, left of the main doors as you face them: round stone pillars, flat roof, precast edge beam with a notched top,
   instanced bikes (one low collider per run of bikes, cam:false).
+- Doors (`DOORS`, `addDoor`): every non-glass room door and stairwell door has a hinged wooden leaf (instanced), closed at start.
+  Near one, a 開門/關門 button appears; E or tap toggles it. Closed = thin collider (`c.off` switches colliders off when open,
+  checked by groundAt/ceilingAt/pushOut/solidAt). `?test` and `?doors=open` start with every door open.
+- Store details are instanced props (`prop()` → one InstancedMesh per shape, colour per item, no colliders/shadows): books in
+  麗文 + club bookshelves (`bookRow`), FamilyMart drinks/snacks/noodles + tills + coffee machine, cosmetics bottles/boxes,
+  post-office parcels, P.O. box doors, mail trays. Club rooms: CC0 Poly Haven table + plastic chairs (`FURN`, `loadFurniture`).
 - Player model: rigged CC0 Quaternius character, male or female (start-screen choice, remembered in localStorage, `?char=m|f`),
   drawn at `CHAR_SCALE` = 1.2× real size and slimmed in the vertex shader (`SLIM`: vertices pulled toward bone axes) (visual only: collision stays person-sized), (`web/models/`, packed by `tools/pack_character.py`, credits in `CREDITS.md`),
   loaded in the background by GLTFLoader (the box character is the fallback, e.g. under `file://` or `?boxman`). Clothes are

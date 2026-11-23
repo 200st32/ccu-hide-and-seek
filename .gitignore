@@ -4,3 +4,5 @@ node_modules/
 dist/
 .env
 student_activity_center/
+screenshots/
+__pycache__/

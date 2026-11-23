@@ -32,6 +32,8 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 #help{bottom:14px;left:calc(16px + env(safe-area-inset-left));background:rgba(20,30,25,.6);padding:10px 14px;border-radius:10px;text-shadow:none;font-size:13px;line-height:1.7}
 #help kbd{display:inline-block;min-width:22px;padding:0 6px;border-radius:5px;background:rgba(255,255,255,.22);text-align:center;font:inherit;font-weight:800}
 #stam{bottom:18px;left:50%;transform:translateX(-50%);width:200px;height:10px;border-radius:6px;background:rgba(0,0,0,.35);overflow:hidden}
+#doorBtn{position:fixed;left:50%;bottom:calc(44px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;z-index:3;font:800 15px "Noto Sans TC",sans-serif;padding:10px 18px;min-height:44px;border:2px solid rgba(255,255,255,.8);border-radius:999px;background:rgba(20,30,25,.7);color:#fff;cursor:pointer;touch-action:none}
+#doorBtn kbd{display:inline-block;margin-left:6px;padding:0 6px;border-radius:5px;background:rgba(255,255,255,.25);font:inherit}
 #stam i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ffd34d,#ff9a3c);transition:width .1s}
 #info{right:calc(14px + env(safe-area-inset-right));bottom:10px;font-size:11px;opacity:.85;text-align:right}
 #start{position:fixed;inset:0;display:grid;place-items:center;overflow:auto;background:rgba(18,40,30,.55);z-index:5;padding:16px}
@@ -75,6 +77,7 @@ html,body{margin:0;height:100%;overflow:hidden;-webkit-text-size-adjust:100%;ove
 <canvas class="hud" id="mini" width="500" height="312"></canvas>
 <div class="hud" id="help"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>Shift</kbd> sprint &nbsp; <kbd>Space</kbd> jump<br>Move mouse to look &nbsp; Scroll to zoom &nbsp; <span id="lock">Click to lock mouse</span></div>
 <div class="hud" id="stam"><i></i></div>
+<button id="doorBtn" type="button">開門 Open door <kbd>E</kbd></button>
 <div class="hud" id="info"></div>
 <div id="joy"><i></i></div>
 <button id="jumpBtn" aria-label="Jump">跳<br>Jump</button>
@@ -550,6 +553,7 @@ const inLake = (x, z, pad = 0) => ((x - LAKE.x)/(LAKE.rx + pad))**2 + ((z - LAKE
 function groundAt(x, z, feet){
   let g = 0;
   for (const c of near(x, z)){
+    if (c.off) continue;
     if (c.helix){ const h = hxGround(c, x, z, feet + STEP); if (h > g) g = h; continue; }
     if (!inside(c, x, z)) continue;
     const t = c.top ? c.top(x, z) : c.y1;
@@ -560,7 +564,7 @@ function groundAt(x, z, feet){
 function ceilingAt(x, z, feet){
   let cl = Infinity;
   for (const c of near(x, z)){
-    if (c.helix || c.top) continue;
+    if (c.helix || c.top || c.off) continue;
     if (c.y0 >= feet + HEAD - 0.1 && c.y0 < cl && inside(c, x, z)) cl = c.y0;
   }
   return cl;
@@ -569,7 +573,7 @@ function pushOut(p, feet){
   for (let pass = 0; pass < 3; pass++){
     let moved = false;
     for (const c of near(p.x, p.z)){
-      if (c.helix) continue;
+      if (c.helix || c.off) continue;
       const b = c.box; if (p.x < b.x0-R || p.x > b.x1+R || p.z < b.z0-R || p.z > b.z1+R) continue;
       if (c.y0 >= feet + HEAD) continue;
       if (!c.top && c.y1 <= feet + STEP) continue;
@@ -591,7 +595,7 @@ function specialBlocked(x, z, feet){
 function solidAt(x, y, z){                         // camera occlusion
   for (const c of near(x, z)){
     if (c.helix){ if (hxSolid(c, x, z, y, y)) return true; continue; }
-    if (!c.cam || y < c.y0) continue;
+    if (!c.cam || c.off || y < c.y0) continue;
     if (!inside(c, x, z)) continue;
     if (y <= (c.top ? c.top(x, z) : c.y1)) return true;
   }
@@ -679,6 +683,35 @@ const FA0 = A_IN - Math.PI/2, FAD = 1.19, FA1 = 2.53, FA2 = A_IN + Math.PI/2;   
 const fanAt = (r, a) => [FC[0] + r*Math.cos(a), FC[1] + r*Math.sin(a)];
 const fanR = (x, z) => Math.hypot(x - FC[0], z - FC[1]);
 const fanA = (x, z) => { let a = Math.atan2(z - FC[1], x - FC[0]); if (a < FA0 - 0.5) a += TAU; return a; };
+// ---------- small props (books, groceries, drinks, cosmetics, parcels, letters): instanced boxes / cylinders, colour per item ----------
+// prop(kind, x, yBottom, z, sizeX, sizeY, sizeZ, colour, rotY). No colliders and no shadows (too small to matter, keeps it cheap).
+const PROPS = {box: [], cyl: []};
+// model furniture (CC0 Poly Haven, web/models/table.glb + chair.glb): placements [x, y, z, rotY], instanced once the models load
+const FURN = {table: [], chair: []};
+const prop = (kind, x, y, z, sx, sy, sz, color, rotY = 0) => PROPS[kind].push([x, y, z, sx, sy, sz, color, rotY]);
+function flushProps(){
+  const geo = {box: new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0), cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 10).translate(0, 0.5, 0)};
+  const M = new THREE.Matrix4(), QQ = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), C = new THREE.Color();
+  for (const [k, list] of Object.entries(PROPS)){
+    if (!list.length) continue;
+    const im = new THREE.InstancedMesh(geo[k], mat(0xffffff, {roughness:.55}), list.length);
+    list.forEach(([x, y, z, sx, sy, sz, c, r], i) => { im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromAxisAngle(UP, r), S.set(sx, sy, sz))); im.setColorAt(i, C.set(c)); });
+    im.receiveShadow = true; scene.add(im);
+  }
+}
+// pick from a palette with the seeded random
+const pick = a => a[Math.floor(rand()*a.length)];
+const COSM_C = [0xe7799f, 0xf3c8b6, 0xa98bd6, 0xf7f2ec, 0xd9405f, 0xf0a3b8, 0x2b2b2b, 0xe8c07a, 0x9fd3c7, 0xc85a7c];
+const BOOK_C = [0x8e2b2b, 0x2b4f8e, 0x2e6b3f, 0xd9b13b, 0xe8e2d2, 0x5b3b72, 0xc2622d, 0x1f2a36, 0x9aa5ad, 0xb84a6a];
+// a row of book spines along a line (a → b) on a shelf face, standing at height y, sticking `out` m out of the face (normal nx, nz)
+function bookRow(ax, az, bx, bz, y, nx, nz, maxH = 0.3){
+  const l = Math.hypot(bx - ax, bz - az), ux = (bx - ax)/l, uz = (bz - az)/l, r = Math.atan2(-uz, ux);
+  for (let s = 0.03; s < l - 0.05; ){
+    const w = 0.025 + rand()*0.035, h = maxH*(0.65 + rand()*0.35);
+    if (rand() > 0.07) prop('box', ax + ux*(s + w/2) + nx*0.02, y, az + uz*(s + w/2) + nz*0.02, w, h, 0.16, pick(BOOK_C), r);
+    s += w + 0.004;
+  }
+}
 const fanClip = p => clipLin(clipLin(p, x => NX1 + 0.3 - x), (x, z) => z - MPZ);
 const fanSector = (r0, r1, n = 20) => fanClip(sectorPts(FC[0], FC[1], r0, r1, FAD, FA1, n));
 const fanTop = r => r <= RL ? L[1] : r >= RF ? 0 : L[1]*(RF - r)/(RF - RL);
@@ -699,6 +732,7 @@ const ENT = [CM[0] + CN[0]*4, CM[1] + CN[1]*4];
 // ---------- ground, plateau (street level = 3F), outdoor paving, lake ----------
 floorF(rect(-400, -400, 400, 400), 0, 'grass');
 floorF(rect(-86, -50, 56, 46), 0.01, 'pave');
+floorF(OUT_NE, 0.008, 'pave');                                   // 1F under the entrance block reaches past x = 56 (P3): pave it too
 solid(PLAT, -0.2, L[2], 'concrete');
 floorF(PLAT, L[2] + 0.01, 'pave');
 { const g = new THREE.CircleGeometry(1, 64); g.rotateX(-Math.PI/2); g.scale(LAKE.rx, 1, LAKE.rz); g.translate(LAKE.x, 0.05, LAKE.z); put(g, 'water', false);
@@ -992,11 +1026,27 @@ const FLOORKEY = {post:'white', beauty:'white', food2:'wood', band:'white', club
 function furnish(s, w, d, P, y, doorU){
   const fb = (u0, v0, u1, v1, h, key, yb = 0) => { v1 = Math.min(v1, d - 0.15); if (v1 - v0 < 0.3) return; const [ax, az] = P(u0, v0), [bx, bz] = P(u1, v1); boxS(ax, az, bx, bz, y + yb, y + yb + h, key, {cam:false}); };
   const clear = (u0, u1, v0) => doorU.every(du => v0 > 2.6 || u1 < du - 1.2 || u0 > du + 1.2);
+  const [o0, o1] = [P(0, 0), P(1, 0)], rotU = Math.atan2(-(o1[1] - o0[1]), o1[0] - o0[0]);          // rotY that lines local x up with u
+  const pr = (kind, u, v, yb, su, sh, sv, c) => { const [x, z] = P(u, v); prop(kind, x, y + yb, z, su, sh, sv, c, rotU); };
+  const colL = (u0, v0, u1, v1, h) => col([P(u0, v0), P(u1, v0), P(u1, v1), P(u0, v1)], y, y + h, {cam:false});
+  // a model (table / chair) at (u, v) whose front (+z of the model) faces local direction (du, dv)
+  const model = (k, u, v, du, dv) => { const [x, z] = P(u, v), [x2, z2] = P(u + du, v + dv); FURN[k].push([x, y, z, Math.atan2(x2 - x, z2 - z) + (k === 'chair' ? Math.PI : 0)]); };   // the chair model's seat faces -z
   if (s.k === 'club'){
-    const variant = Math.floor(rand()*3);
-    fb(w/2 - 1, 5.2, w/2 + 1, 6.2, 0.76, 'wood');                              // meeting table
-    for (const [du, dv] of [[-1.4, 0], [1.4, 0], [0, -0.9], [0, 1.4]]) fb(w/2 + du - 0.22, 5.7 + dv - 0.22, w/2 + du + 0.22, 5.7 + dv + 0.22, 0.45, 'sofa');
+    const variant = Math.floor(rand()*3), cu = w/2, cv = 5.7;
+    // meeting table: two CC0 wooden tables pushed together, plastic chairs around it (chairs are low: you can hop on them)
+    for (const dv of [-0.355, 0.355]) model('table', cu, cv + dv, 0, 1);
+    colL(cu - 0.57, cv - 0.71, cu + 0.57, cv + 0.71, 0.78);
+    for (const [du, dv, fu, fv] of [[-0.3, -1.25, 0, 1], [0.3, -1.25, 0, 1], [-0.3, 1.25, 0, -1], [0.3, 1.25, 0, -1], [-1.0, 0, 1, 0], [1.0, 0, -1, 0]]){
+      if (rand() < 0.15) continue;
+      const a = (rand() - 0.5)*0.5, ca = Math.cos(a), sa = Math.sin(a);
+      model('chair', cu + du, cv + dv, fu*ca - fv*sa, fu*sa + fv*ca);
+      const [x, z] = P(cu + du, cv + dv); col(circlePts(x, z, 0.24, 6), y, y + 0.45, {cam:false});
+    }
+    for (let i = 0; i < 3; i++) pr('box', cu - 0.4 + rand()*0.8, cv - 0.5 + rand()*1.0, 0.8, 0.21, 0.01, 0.297, 0xf4f4f0);   // papers on the table
+    pr('cyl', cu + 0.35, cv - 0.3, 0.8, 0.08, 0.11, 0.08, pick([0xd0463a, 0x2f6fb0, 0xf0f0f0]));
     fb(0.3, d - 0.6, 2.6, d - 0.1, 1.9, 'dark');                                // bookshelf on the back wall
+    { const [a0, a1] = [P(0.3, d - 0.6), P(2.6, d - 0.6)], [nx, nz] = [P(0, -1)[0] - P(0, 0)[0], P(0, -1)[1] - P(0, 0)[1]];
+      for (const yy of [0.1, 0.55, 1.0, 1.45]) bookRow(...a0, ...a1, y + yy, nx, nz); }
     fb(w - 2.3, d - 0.55, w - 0.3, d - 0.1, 1.85, 'metal');                     // lockers
     if (clear(w - 1, w, 2.6)) fb(w - 0.95, 2.8, w - 0.15, 5.0, 0.85, 'sofa');    // couch
     if (variant >= 1){ fb(w/2 - 0.4, d - 1.6, w/2 + 0.4, d - 0.8, 0.6, 'box'); fb(w/2 - 0.3, d - 1.5, w/2 + 0.3, d - 0.9, 0.5, 'box', 0.6); }
@@ -1008,6 +1058,18 @@ function furnish(s, w, d, P, y, doorU){
     for (let u = 1.4; u < w - 1; u += 2.4) fb(u, 5.4, u + 1.4, 6.1, 0.76, 'wood');   // clerks' desks
     fb(0.4, d - 0.6, w - 0.4, d - 0.15, 1.9, 'metal');                         // parcel shelves
     fb(0.15, 0.6, 0.55, 3.6, 2.0, 'poBox');                                     // P.O. boxes on the side wall
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 10; c++) pr('box', 0.56, 0.75 + c*0.29 + 0.13, 0.12 + r*0.27, 0.015, 0.22, 0.25, r % 2 ? 0xcdb98a : 0xc3ae7c);   // little locker doors
+    const BROWN = [0xb08a5a, 0xc29a68, 0xa77c4c, 0xd2b07e];
+    for (let u = 0.6; u < w - 0.9; u += 0.55 + rand()*0.3){                    // parcels on top of the shelves and stacked in front of them
+      const a = 0.3 + rand()*0.25; pr('box', u, d - 0.38, 1.9, a, 0.2 + rand()*0.25, 0.4, pick(BROWN));
+      if (rand() < 0.45){ let yy = 0; for (let k = 0, n = 1 + Math.floor(rand()*3); k < n; k++){ const b = 0.3 + rand()*0.25, hh = 0.2 + rand()*0.25; pr('box', u + (rand() - 0.5)*0.1, d - 1.0, yy, b, hh, b, pick(BROWN)); yy += hh; } }
+    }
+    for (let u = 1.4; u < w - 1; u += 2.4){                                     // mail trays with letters on the clerks' desks
+      pr('box', u + 0.35, 5.6, 0.76, 0.36, 0.08, 0.26, 0x3c6fb0);
+      for (let k = 0; k < 6; k++) pr('box', u + 0.35, 5.6, 0.77 + k*0.012, 0.22, 0.008, 0.11, k % 3 ? 0xf6f3ea : 0xe8d9b0);
+      pr('box', u + 1.0, 5.55, 0.76, 0.12, 0.09, 0.12, 0x9a1f1f);              // stamp pad
+    }
+    for (let u = 1.0; u < w - 1.0; u += 3.0) pr('box', u, 4.55, 1.05, 0.34, 0.03, 0.22, 0x2b2d30);   // scales / terminals on the counter
     fb(w - 2.6, 1.2, w - 0.4, 1.8, 1.0, 'wood');                                // customer writing desk
     fb(1.2, 0.9, 1.6, 1.3, 1.3, 'screen');                                      // queue-ticket machine
   } else if (s.k === 'beauty'){
@@ -1015,10 +1077,24 @@ function furnish(s, w, d, P, y, doorU){
     for (const [a, b] of [[0.12, 0.62], [w - 0.62, w - 0.12]]){                 // wall shelves, products on four levels
       const back = a < 1 ? [a - 0.02, a + 0.1] : [b - 0.1, b + 0.02], [p0, p1] = a < 1 ? [a + 0.1, b] : [a, b - 0.1];
       fb(back[0], 0.8, back[1], d - 0.3, 2.1, 'counter');
-      for (let k = 0; k < 4; k++){ fb(p0, 0.8, p1, d - 0.3, 0.04, 'counter', 0.35 + k*0.45); fb(p0 + 0.05, 0.9, p1 - 0.05, d - 0.4, 0.2, C[(k + (a < 1 ? 0 : 2)) % 4], 0.39 + k*0.45); }
+      for (let k = 0; k < 4; k++){
+        fb(p0, 0.8, p1, d - 0.3, 0.04, 'counter', 0.35 + k*0.45);
+        for (let v = 0.9; v < d - 0.45; v += 0.1 + rand()*0.06){                 // bottles, jars, boxes
+          const um = (p0 + p1)/2 + (rand() - 0.5)*0.15, c = pick(COSM_C);
+          if (rand() < 0.55) pr('cyl', um, v, 0.39 + k*0.45, 0.06 + rand()*0.03, 0.1 + rand()*0.12, 0.06 + rand()*0.03, c);
+          else pr('box', um, v, 0.39 + k*0.45, 0.07 + rand()*0.05, 0.08 + rand()*0.1, 0.05 + rand()*0.03, c);
+        }
+      }
     }
-    for (const v of [2.3, 5.6]){ fb(w/2 - 0.55, v, w/2 + 0.55, v + 2.4, 1.25, 'counter'); fb(w/2 - 0.45, v + 0.1, w/2 + 0.45, v + 2.3, 0.16, C[v > 3 ? 1 : 0], 1.25); }   // gondolas
+    for (const v of [2.3, 5.6]){                                                // gondolas with lipsticks / palettes / tubes on top
+      fb(w/2 - 0.55, v, w/2 + 0.55, v + 2.4, 1.25, 'counter');
+      for (let a = v + 0.15; a < v + 2.3; a += 0.12) for (let b = w/2 - 0.42; b < w/2 + 0.43; b += 0.14)
+        if (rand() < 0.8) pr(rand() < 0.5 ? 'cyl' : 'box', b, a, 1.25, 0.05, 0.06 + rand()*0.1, 0.05, pick(COSM_C));
+      for (const sv of [v - 0.02, v + 2.42]) for (let b = w/2 - 0.45; b < w/2 + 0.46; b += 0.15) pr('box', b, sv, 0.35, 0.12, 0.14 + rand()*0.06, 0.04, pick(COSM_C));   // ends
+    }
     fb(w/2 - 1.6, d - 1.5, w/2 + 1.6, d - 0.9, 1.0, 'counter');                // till
+    pr('box', w/2 + 0.8, d - 1.2, 1.0, 0.36, 0.14, 0.3, 0x2b2d30); pr('box', w/2 + 0.8, d - 1.32, 1.14, 0.3, 0.22, 0.03, 0x111316);   // register + screen
+    for (let k = 0; k < 5; k++) pr('box', w/2 - 1.3 + k*0.22, d - 1.2, 1.0, 0.16, 0.22, 0.12, pick(COSM_C));
   } else if (s.k === 'office'){
     for (let v = 3.5; v < d - 2; v += 3) for (let u = 1.6; u < w - 1.4; u += 3.2){
       fb(u - 0.7, v, u + 0.7, v + 0.7, 0.76, 'wood'); fb(u - 0.25, v + 0.85, u + 0.25, v + 1.3, 0.45, 'sofa');
@@ -1037,16 +1113,26 @@ const FRONT = {
   e: (x0, z0, x1, z1) => ({A:[x1, z0], B:[x1, z1], P:(u, v) => [x1 - v, z0 + u], W:z1 - z0, D:x1 - x0, rot:Math.PI/2, at:z0}),
   w: (x0, z0, x1, z1) => ({A:[x0, z0], B:[x0, z1], P:(u, v) => [x0 + v, z0 + u], W:z1 - z0, D:x1 - x0, rot:-Math.PI/2, at:z0}),
 };
+// ---------- doors: a hinged leaf in every non-glass room / stairwell doorway, closed at start, toggled with E or the button ----------
+// Closed: a thin collider fills the gap (also stops the camera). Open: the leaf swings 90° into the room and the collider is off.
+const DOORS = [], DOOR_T = 0.05, DOOR_OPEN_S = 0.45;     // leaf thickness (m), seconds to swing
+function addDoor(F, u, w, h, y){
+  const hinge = F.P(u - w/2, 0), end = F.P(u + w/2, 0), inn = F.P(u - w/2, 1);
+  const d = [end[0] - hinge[0], end[1] - hinge[1]], n = [inn[0] - hinge[0], inn[1] - hinge[1]];
+  const pts = [F.P(u - w/2, -0.07), F.P(u + w/2, -0.07), F.P(u + w/2, 0.07), F.P(u - w/2, 0.07)];
+  DOORS.push({hinge, y, w, h, thC: Math.atan2(-d[1], d[0]), thO: Math.atan2(-n[1], n[0]), t: 0, target: 0,
+    c: F.P(u, 0), col: col(pts, y, y + h - 0.02)});
+}
 function room(f, x0, z0, x1, z1, front, s){
   const y = L[f], ceil = y + H - SL, F = FRONT[front](x0, z0, x1, z1);
   const doorU = (s.doors || [F.at + 1.5]).map(d => d - F.at);
-  if (s.stair){ wallLine(...F.A, ...F.B, y, ceil, 'wall', doorU.map(u => [u, 2.0, 2.5]), {lintel:'wall'}); return; }
+  if (s.stair){ wallLine(...F.A, ...F.B, y, ceil, 'wall', doorU.map(u => [u, 2.0, 2.5]), {lintel:'wall'}); doorU.forEach(u => addDoor(F, u, 2.0, 2.5, y)); return; }
   if (!s.open){
     if (s.glass){
       wallLine(...F.A, ...F.B, y, y + 3, 'glass', doorU.map(u => [u, 2.4, 3]), {cam:false, cast:false, t:0.08});
       wseg(...F.A, ...F.B, y + 3, s.top ? y + H : ceil, s.top || 'wall');
       for (let u = 0; u <= F.W + 0.01; u += 2) if (doorU.every(du => Math.abs(u - du) > 1.3)){ const [x, z] = F.P(u, 0); bar([x, y, z], [x, y + 3, z], 0.08, 'steel'); }
-    } else wallLine(...F.A, ...F.B, y, ceil, 'wallWin', doorU.map(u => [u, s.w || 1.6, 2.4]), {lintel:'wall'});
+    } else { wallLine(...F.A, ...F.B, y, ceil, 'wallWin', doorU.map(u => [u, s.w || 1.6, 2.4]), {lintel:'wall'}); doorU.forEach(u => addDoor(F, u, s.w || 1.6, 2.4, y)); }
   }
   floorF(rect(x0, z0, x1, z1), y + 0.02, s.floor || FLOORKEY[s.k] || 'white', s.holes);
   lamps(x0, z0, x1, z1, ceil);
@@ -1259,8 +1345,17 @@ room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'cou
   boxS(NX1 + 0.15, -19.5, NX1 + 0.8, -18.8, L[2], L[2] + 3.4, 'lib', {cam:false});   // green pillar sign in the entrance hall
   for (const z of [-20.5, -23]) boxS(14, z - 0.25, 23, z + 0.25, L[2], L[2] + 1.8, 'dark', {cam:false});
   for (const z of [-20.5, -23]) boxS(17, z - 0.25, 28, z + 0.25, L[1], L[1] + 1.8, 'dark', {cam:false});
+  // books on both faces of every shelf, four levels, with a light shelf board under each row
+  for (const [x0, x1, yb] of [[14, 23, L[2]], [17, 28, L[1]]]) for (const z of [-20.5, -23]) for (const sd of [-1, 1]) for (const yy of [0.08, 0.52, 0.96, 1.4]){
+    bookRow(x0, z + sd*0.25, x1, z + sd*0.25, yb + yy, 0, sd);
+    prop('box', (x0 + x1)/2, yb + yy - 0.03, z + sd*0.27, x1 - x0, 0.03, 0.08, 0xc8b08a);
+  }
   boxS(13, -17.4, 16.5, -16.6, L[2], L[2] + 1.0, 'counter', {cam:false});
+  prop('box', 15.6, L[2] + 1.0, -17.0, 0.38, 0.13, 0.32, 0x2b2d30); prop('box', 15.6, L[2] + 1.13, -17.15, 0.32, 0.22, 0.03, 0x111316);   // till
+  for (let k = 0; k < 4; k++) prop('box', 13.4 + k*0.3, L[2] + 1.0, -17.0, 0.21, 0.02 + k*0.01, 0.28, pick(BOOK_C));
   boxS(27.5, -27.5, 29.5, -25.5, L[2], L[2] + 0.9, 'wood', {cam:false});
+  for (let i = 0; i < 9; i++){ let yy = L[2] + 0.9; const x = 27.8 + (i % 3)*0.65, z = -27.2 + Math.floor(i/3)*0.65;   // new-release stacks on the table
+    for (let k = 0, n = 3 + Math.floor(rand()*5); k < n; k++){ const hh = 0.02 + rand()*0.03; prop('box', x + (rand() - 0.5)*0.04, yy, z, 0.22, hh, 0.3, pick(BOOK_C), (rand() - 0.5)*0.15); yy += hh; } }
   // stair 2F (x = 14) → 3F (x = 22.2) along the back wall
   const top = x => L[1] + Math.max(0, Math.min(1, (x - 14) / 8.2)) * H;
   for (let i = 0; i < 24; i++){ const xa = 14 + 8.2*i/24, xb = 14 + 8.2*(i+1)/24; put(prismGeo(rect(xa, -27.6, xb, -25.2), L[1], top((xa + xb)/2)), 'wood'); }
@@ -1277,6 +1372,28 @@ room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'cou
   boxS(-8.6, -BZ + 0.2, 11.6, -BZ + 1.0, y, y + 2.1, 'fridge', {cam:false});
   for (const z of [-24, -21]) for (const [a, b] of [[-7, -1.5], [3.5, 10]]) boxS(a, z - 0.4, b, z + 0.4, y, y + 1.5, 'metal', {cam:false});
   boxS(-8.5, -17.4, -5.5, -16.6, y, y + 1.0, 'counter', {cam:false});
+  const SNACK = [0xe53935, 0xfdd835, 0x43a047, 0x1e88e5, 0xfb8c00, 0x8e24aa, 0xf5f5f5, 0x6d4c41], DRINK = [0x2e7d32, 0xc62828, 0xf9a825, 0x1565c0, 0xeceff1, 0x6d4c41, 0xff7043];
+  // drinks fridge along the back wall: bottles and cans on five levels behind the glass, door frames every metre
+  for (const yy of [0.12, 0.52, 0.92, 1.32, 1.72]) for (let x = -8.45; x < 11.5; x += 0.085) if (rand() < 0.93){
+    const tall = rand() < 0.6; prop('cyl', x, y + yy, -BZ + 1.05, 0.065, tall ? 0.24 : 0.13, 0.065, pick(DRINK)); }
+  for (let x = -8.6; x <= 11.61; x += 1.01) prop('box', x, y, -BZ + 1.1, 0.05, 2.1, 0.04, 0x9aa3a8);
+  // shelves: snack bags, instant noodles, boxes on both faces, four levels
+  for (const z of [-24, -21]) for (const [a, b] of [[-7, -1.5], [3.5, 10]]) for (const sd of [-1, 1]) for (const yy of [0.1, 0.45, 0.8, 1.15]){
+    const kind = Math.floor(rand()*3);
+    for (let x = a + 0.08; x < b - 0.08; x += 0.15 + rand()*0.05){
+      if (rand() < 0.08) continue;
+      const c = pick(SNACK), zz = z + sd*0.47;                                         // in front of the shelf face (z ± 0.4)
+      if (kind === 0) prop('box', x, y + yy, zz, 0.13, 0.2 + rand()*0.06, 0.07, c);                     // snack bags
+      else if (kind === 1){ prop('cyl', x, y + yy, zz, 0.1, 0.1, 0.1, c); prop('cyl', x, y + yy + 0.1, zz, 0.1, 0.1, 0.1, c); }   // cup noodles, two high
+      else prop('box', x, y + yy, zz, 0.12, 0.16, 0.12, c);                                             // boxes
+    }
+    prop('box', (a + b)/2, y + yy - 0.03, z + sd*0.42, b - a, 0.04, 0.03, 0xf2f2f2);                    // price strip
+  }
+  // counter: two tills, coffee machine, a warmer with tea eggs / buns
+  for (const x of [-8.0, -6.9]){ prop('box', x, y + 1.0, -17.0, 0.36, 0.13, 0.32, 0x2b2d30); prop('box', x, y + 1.13, -17.15, 0.3, 0.22, 0.03, 0x111316); }
+  prop('box', -5.95, y + 1.0, -17.0, 0.42, 0.62, 0.45, 0x3a3d42); prop('box', -5.95, y + 1.25, -16.79, 0.3, 0.2, 0.02, 0xd0463a);
+  prop('box', -7.45, y + 1.0, -16.9, 0.5, 0.3, 0.42, 0xd9c7a0);
+  sign('收銀台', 'Cashier', -7.0, y + 2.6, -16.9, 0, 1.6, 0.45, '#2f9e5a');
 }
 // --- 側門 side entrance hall (3F): theatre doors on the west wall, exit door on the north wall ---
 sign('活動中心 側門', 'Side Exit', SIDE_X, L[2] + 3.0, -BZ + 0.16, 0, 3, 0.6, '#2f4f63');
@@ -1433,7 +1550,50 @@ const BIKE = {x0:BXE, x1:BXE + 5.6, z0:-11, z1:BZ - 0.5, h:3.4, step:3.9, colR:0
   scene.add(bush);   // bushes have no collider: hiding spots
 }
 
-const TRIS = flush(); flushSigns();
+const TRIS = flush(); flushSigns(); flushProps();
+
+// door leaves (wood, instanced) + a metal handle on both faces
+const doorLeaf = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, DOOR_T).translate(0.5, 0.5, 0), mat(0x8a5f3c, {roughness:.55}), DOORS.length);
+const doorKnob = new THREE.InstancedMesh(mergeGeometries([-1, 1].map(sd => new THREE.BoxGeometry(0.14, 0.035, 0.05).translate(0, 0, sd*(DOOR_T/2 + 0.03)))), MAT.steel, DOORS.length);
+doorLeaf.castShadow = doorLeaf.receiveShadow = true;
+function placeDoor(i){
+  const D = DOORS[i], e = D.t*D.t*(3 - 2*D.t);
+  let dth = D.thO - D.thC; dth = Math.atan2(Math.sin(dth), Math.cos(dth));
+  const th = D.thC + dth*e, M = new THREE.Matrix4().makeRotationY(th).setPosition(D.hinge[0], D.y + 0.01, D.hinge[1]);
+  doorLeaf.setMatrixAt(i, M.clone().multiply(new THREE.Matrix4().makeScale(D.w - 0.04, D.h - 0.03, 1)));
+  doorKnob.setMatrixAt(i, M.multiply(new THREE.Matrix4().makeTranslation(D.w - 0.16, 1.0, 0)));
+}
+DOORS.forEach((D, i) => placeDoor(i));
+scene.add(doorLeaf, doorKnob);
+function setDoor(D, open){
+  if (!open && Math.hypot(player.pos.x - D.c[0], player.pos.z - D.c[1]) < R + 0.15) return;   // someone is standing in the doorway
+  D.target = open ? 1 : 0; D.col.off = open;
+}
+function updateDoors(dt){
+  let moved = false;
+  DOORS.forEach((D, i) => { if (D.t !== D.target){ D.t = D.target > D.t ? Math.min(D.target, D.t + dt/DOOR_OPEN_S) : Math.max(D.target, D.t - dt/DOOR_OPEN_S); placeDoor(i); moved = true; } });
+  if (moved){ doorLeaf.instanceMatrix.needsUpdate = doorKnob.instanceMatrix.needsUpdate = true; }
+}
+const DOOR_REACH = 1.8;
+function nearestDoor(){
+  let best = null, bd = DOOR_REACH;
+  for (const D of DOORS){ if (Math.abs(player.pos.y - D.y) > 1.2) continue; const d = Math.hypot(player.pos.x - D.c[0], player.pos.z - D.c[1]); if (d < bd){ bd = d; best = D; } }
+  return best;
+}
+const doorBtn = document.getElementById('doorBtn');
+let doorNear = null;
+function doorUI(){
+  const D = nearestDoor();
+  if (D !== doorNear || (D && doorBtn.dataset.open !== String(D.target))){
+    doorNear = D; doorBtn.style.display = D ? 'block' : 'none';
+    if (D){ doorBtn.dataset.open = String(D.target); doorBtn.innerHTML = D.target ? '關門 Close door <kbd>E</kbd>' : '開門 Open door <kbd>E</kbd>'; }
+  }
+}
+const toggleDoor = () => { if (doorNear) setDoor(doorNear, !doorNear.target); };
+doorBtn.addEventListener('click', e => { e.stopPropagation(); toggleDoor(); });
+doorBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); toggleDoor(); }, {passive:false});
+addEventListener('keydown', e => { if (e.code === 'KeyE' && !e.repeat) toggleDoor(); });
+if (Q.has('test') || Q.get('doors') === 'open') DOORS.forEach(D => { D.t = D.target = 1; D.col.off = true; });
 
 // =====================================================================================
 //  PLAYER
@@ -1514,9 +1674,23 @@ function clothe(mesh){
   };
 }
 let gltfLoader = null, animsP = null, loadTok = 0;
+async function getLoader(){ if (!gltfLoader){ const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'); gltfLoader = new GLTFLoader(); } return gltfLoader; }
+async function loadFurniture(){
+  const ld = await getLoader(), M = new THREE.Matrix4(), QQ = new THREE.Quaternion(), P = new THREE.Vector3(), S1 = new THREE.Vector3(1, 1, 1), UP = new THREE.Vector3(0, 1, 0);
+  for (const k of Object.keys(FURN)){
+    const list = FURN[k]; if (!list.length) continue;
+    const g = await ld.loadAsync(`models/${k}.glb`); g.scene.updateMatrixWorld(true);
+    g.scene.traverse(o => { if (!o.isMesh) return;
+      const im = new THREE.InstancedMesh(o.geometry, o.material, list.length);
+      list.forEach(([x, y, z, r], i) => im.setMatrixAt(i, M.compose(P.set(x, y, z), QQ.setFromAxisAngle(UP, r), S1).multiply(o.matrixWorld)));
+      im.castShadow = im.receiveShadow = true; scene.add(im);
+    });
+  }
+}
+loadFurniture().catch(e => console.warn('furniture models not loaded:', e));
 async function loadStudent(sex){
   const tok = ++loadTok;
-  if (!gltfLoader){ const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'); gltfLoader = new GLTFLoader(); }
+  await getLoader();
   animsP ??= gltfLoader.loadAsync('models/anims.glb');
   const [body, hair, anims] = await Promise.all([gltfLoader.loadAsync(`models/student_${sex}.glb`), gltfLoader.loadAsync(`models/hair_${sex}.glb`), animsP]);
   if (tok !== loadTok) return;                                    // the player picked the other one meanwhile
@@ -1744,6 +1918,7 @@ function step(dt){
     else if (mouseX > innerWidth - e) yaw -= 2.2 * dt * (1 - (innerWidth - mouseX)/e);
   }
   if (dt > 0) move(dt);
+  updateDoors(dt); if (running) doorUI();
   const p = player.pos, o = player.obj, u = o.userData;
   const visY = p.y - player.stepVis;
   o.position.set(p.x, visY, p.z); o.rotation.y = player.heading;
