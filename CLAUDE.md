@@ -45,8 +45,13 @@ the official floor map) + Kai's description. Standalone page (index.html links t
     Walkways outside the east block: 3F along its north + west faces (entrance bridge ↔ lake-side 3F walkway), 2F along its
     west face (↔ lake-side 2F walkway); a 2F link deck (the fan's south-east slice, over the red-arrow
     path) joins it to the grand stair's 2F landing.
-  - West block (1F–4F, x −76..−28, scaled from the drawing): 演藝廳 sticks out north (z −39.5..−15): back stage (outside door) |
-    stage | 22 raked rows from the 3F door down to 1F. Then a corridor along the theatre wall + a band of rooms, the open-air slot (2F west gallery high
+  - West block (1F–4F, x −76..−28, scaled from the drawing): 演藝廳 sticks out north (z −39.5..−15), built from Kai's photos + the
+    official stage plan / seat chart in `student_activity_center/演藝廳/`: back-stage extension (儲藏室, 貨梯, outside door `BS_DOOR` via
+    a ramp) | stage 13.6 m behind the 12.7 m proscenium at `SX` (red main curtain, black legs + backdrop, lectern, light bars) |
+    curved apron 5.7 m with side steps | 1F front cross-aisle (double doors to corridor 1 and outside, `THEATRE_DOOR1`) | 14 raked
+    rows of real seats (blocks 8 | 12 | 8, north block's first rows shorter) | 2F rear cross-aisle (door to corridor 1, `THEATRE_DOOR2`)
+    under the balcony + control room | balcony: 5 rows entered at the back from the 3F side hall through a double door with vertical
+    演藝廳 plaques (`signV`, `doubleDoor`). Wood-panel walls (`woodP` canvas texture), white ceiling with downlights, side screens. Then a corridor along the theatre wall + a band of rooms, the open-air slot (2F west gallery high
     end → ground outside the west face, nothing above it), another band of rooms + corridor, and the south row: club |
     indoor stair 1F–4F (square, switchback) | club | restaurant (1F–2F, half-round glass bay facing the lake).
     The slot is open to the sky: 1F path on its north part, slope (2F → outside) on its south part. 1F rooms there are offices; others clubs.
@@ -103,14 +108,14 @@ the official floor map) + Kai's description. Standalone page (index.html links t
   - Performance: pixel ratio cap 1.5 + dynamic resolution (drops once, floor 1.0, if frames > 18.5 ms); one shadow
     light with a tight shadow camera fitted to `SHADOW_BOX`, 2048 map. Measured on Kai's MacBook (Intel Iris Plus),
     1280×760: ≥ 60 fps with AO, ~120 draw calls (settles at pixel ratio 1.0; ~32–39 fps at a fixed 1.5).
-- Debug: `?test` walks 55 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
+- Debug: `?test` walks 58 scripted routes (every stair/bridge/exit + wall/railing blocks) and prints PASS/FAIL;
   `?shot=x,y,z,yaw,pitch,dist[&nohud]` places player/camera for screenshots. Headless Chrome works with `file://`
   + `--allow-file-access-from-files --use-angle=swiftshader --enable-unsafe-swiftshader`.
   F3 / `?stats` = stats overlay (fps, draw calls, triangles, textures). `?bench=x,y,z,yaw,pitch,dist` = 6 s warm-up +
   6 s measured camera spin, prints fps/p95/draw calls (use real GPU: `--use-angle=metal --disable-gpu-vsync
   --disable-frame-rate-limit --disable-renderer-backgrounding`). Overrides: `?pr= ?shadowmap= ?aos= ?aod= ?noao ?noenv
   ?aoview` (AO buffer only).
-- Approximations to revisit with Kai: room sizes (from the drawing's scale), 2F under the entrance hall (solid now), 演藝廳 interior,
+- Approximations to revisit with Kai: room sizes (from the drawing's scale), 2F under the entrance hall (solid now), 演藝廳 wings (narrower than the real 8 m),
   4F extent (north + west only), real club names. No door leaves yet (openings only).
 
 ## Roadmap after that

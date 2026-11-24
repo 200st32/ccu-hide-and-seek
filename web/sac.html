@@ -170,8 +170,9 @@ const SLOT = [-2.5, 7.5];          // west block slot, open to the sky: slope (2
 const SHOP_X = [-61, -50, WX];   // 1F shops facing the path beside the slope: 美妝小舖 Cosmetics | 郵局 Post Office (2× wide)
 const SLOPE_Z1 = 2;                // 1F path z SLOT[0]..SLOPE_Z1 (north), slope z SLOPE_Z1..SLOT[1] (south)
 const TN = -39.5, TZ1 = -15;       // 演藝廳: x BXW..WX, z TN..TZ1, full height (sticks out north of the main block)
-const BSX = -67, SX = -57;         // 演藝廳: back stage x BXW..BSX, stage BSX..SX, seats SX..WX
-const BS_DOOR = -33;               // back-stage door to the outside (west face, 1F)
+const BSX = -70, SX = -56.4;       // 演藝廳: back stage x BXW..BSX, stage BSX..SX (SX = proscenium / main curtain), apron + seats SX..WX
+const BS_DOOR = -27.4;             // back-stage door to the outside (west face, 1F), between the storage room and the freight lift
+const THEATRE_DOOR1 = -48.85, THEATRE_DOOR2 = -32;   // theatre doors: 1F front cross-aisle (corridor 1 + outside), 2F rear cross-aisle (corridor 1)
 const C1Z = [TZ1, -12];            // west block corridor between the theatre and the rooms beside it
 const C2Z = [16, 19];              // west block corridor between the slope-side rooms and the south rooms
 const STW = [-66, -59];            // indoor stair (1F–4F) on the south face, x range (z C2Z[1]..BZ)
@@ -234,6 +235,15 @@ const tiles = (base, grout, vary) => (g, s) => {
 const T_RED   = tex(128, 2, tiles('#b5694f', '#8d4f3b', ['#b5694f','#ad6249','#bb7157','#b0664c']));
 const T_GREEN = tex(128, 2, tiles('#5f7f70', '#4a6358', ['#5f7f70','#5a7a6b','#668676','#5c7c6d']));
 const T_WHITE = tex(128, 2, tiles('#d9d6cf', '#bdb8ae', ['#d9d6cf','#d3d0c9','#dedbd4']));
+// theatre wood: warm veneer panels 1.2 m wide (vertical grain, dark joints); dark vertical slats for the back wall
+const woodDraw = (base, slat) => (g, s) => {
+  g.fillStyle = base; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 90; i++){ g.fillStyle = `rgba(${rand() < .5 ? '255,235,200' : '70,35,10'},${0.04 + rand()*0.08})`; g.fillRect(rand()*s, 0, 1 + rand()*3, s); }
+  g.fillStyle = 'rgba(40,20,8,.55)';
+  if (slat) for (let x = 0; x < s; x += s/24) g.fillRect(x, 0, s/72, s);
+  else { g.fillRect(0, 0, 2, s); g.fillRect(s/2, 0, 2, s); g.fillRect(0, s/2, s, 1); }
+};
+const T_WOODP = tex(256, 2.4, woodDraw('#b5783f', false)), T_WOODD = tex(256, 2.4, woodDraw('#5a3a24', true));
 function brickDraw(win, base){
   return (g, s) => {
     const px = s / 4;                                  // pixels per metre (texture covers 4 m x 4 m)
@@ -301,7 +311,8 @@ const MAT = {
   metal: mat(0xa9b0b5, {metalness:.3, roughness:.5}), bed: mat(0xf4f4f2), curtain: mat(0xa9d3e0), box: mat(0xc49a63),
   plant: mat(0x3f8a3c, {flatShading:true}), fridge: mat(0xdde6ea, {roughness:.25}), counter: mat(0xe9e4da), mirror: mat(0xcfe3ea, {roughness:.05, metalness:.6}),
   curtainR: mat(0x8c1f2a), postR: mat(0xc42f2a, {roughness:.4}), postG: mat(0x2e8a45, {roughness:.4}), poBox: mat(0xb9a77a, {metalness:.4, roughness:.4}),
-  cosmA: mat(0xe7799f), cosmB: mat(0xf3c8b6), cosmC: mat(0xa98bd6), cosmD: mat(0xf7f2ec), screen: mat(0x26292d), lib: mat(0x3ea04a), fmB: mat(0x2b6cb0), fmG: mat(0x2f9e5a), fmLime: mat(0x8cc63f), maple: mat(0xdcc29a, {roughness:.6}), kidsBlue: mat(0x5bc0d8),
+  cosmA: mat(0xe7799f), cosmB: mat(0xf3c8b6), cosmC: mat(0xa98bd6), cosmD: mat(0xf7f2ec), screen: mat(0x26292d), lib: mat(0x3ea04a), fmB: mat(0x2b6cb0), fmG: mat(0x2f9e5a), fmLime: mat(0x8cc63f), carpetG: mat(0x6c6e72), ceilW: mat(0xf2efe9, {emissive:0x3a362f}), curtainK: mat(0x1c1b1e), brass: mat(0xc9a44c, {metalness:.6, roughness:.35}),
+  woodP: mat(0xffffff, {map:T_WOODP, roughness:.55}), woodD: mat(0xffffff, {map:T_WOODD, roughness:.6}), maple: mat(0xdcc29a, {roughness:.6}), kidsBlue: mat(0x5bc0d8),
   tileW: mat(0xeef2f4, {roughness:.35}), stall: mat(0x8fa9bd, {roughness:.5}), porcelain: mat(0xffffff, {roughness:.15}),
   rail: mat(0x3b7a56, {roughness:.5, metalness:.3}),
   railP: mat(0xffffff, {map:T_RAIL, alphaTest:.5, side:THREE.DoubleSide, roughness:.5}),
@@ -629,6 +640,23 @@ function sign(main, sub, x, y, z, rotY, w, h, bg = '#264d3a', fg = '#fff'){
   for (let i = 0; i < uv.count; i++){
     const u = uv.getX(i), v = uv.getY(i);
     uv.setXY(i, (ax + e + u*(W - 2*e)) / ATLAS, 1 - (ay + e + (1 - v)*(Hh - 2*e)) / ATLAS);
+  }
+  geo.rotateY(rotY); geo.translate(x, y, z); pg.geos.push(geo);
+}
+// vertical sign (characters stacked top to bottom), e.g. the 演藝廳 plaques beside the theatre doors: drawn sideways into an atlas slot
+function signV(text, x, y, z, rotY, w, h, bg = '#264d3a', fg = '#fff'){
+  const W = SIGN_W, Hh = Math.max(64, Math.round(W * w / h)), {pg, x:ax, y:ay} = signSlot(Hh), g = pg.g, ch = [...text];
+  g.save(); g.beginPath(); g.rect(ax, ay, W, Hh); g.clip(); g.translate(ax, ay);
+  g.fillStyle = bg; g.fillRect(0, 0, W, Hh);
+  g.strokeStyle = fg; g.lineWidth = Math.max(2, Hh*0.04); g.strokeRect(Hh*0.1, Hh*0.1, W - Hh*0.2, Hh*0.8);
+  const step = (W - Hh*0.3) / ch.length, size = Math.min(step*0.8, Hh*0.62);
+  g.fillStyle = fg; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `800 ${Math.floor(size)}px "Noto Sans TC", "PingFang TC", sans-serif`;
+  ch.forEach((c, i) => { g.save(); g.translate(Hh*0.15 + step*(i + 0.5), Hh/2); g.rotate(-Math.PI/2); g.fillText(c, 0, 0); g.restore(); });
+  g.restore();
+  const geo = new THREE.PlaneGeometry(w, h), uv = geo.attributes.uv, e = 1.5;
+  for (let i = 0; i < uv.count; i++){                                   // plane top → slot left, plane right → slot top
+    const u = uv.getX(i), v = uv.getY(i);
+    uv.setXY(i, (ax + e + (1 - v)*(W - 2*e)) / ATLAS, 1 - (ay + e + (1 - u)*(Hh - 2*e)) / ATLAS);
   }
   geo.rotateY(rotY); geo.translate(x, y, z); pg.geos.push(geo);
 }
@@ -998,7 +1026,7 @@ function railPoly(pts, y, skip = []){ for (let i = 0; i < pts.length; i++) if (!
 const EXT = {lintel:'brick'};
 for (let f = 0; f < 4; f++){
   const y0 = L[f], y1 = L[f] + H;
-  wallLine(BXW, TN, WX, TN, y0, y1, 'brick', [], EXT);                                                // theatre: blank
+  wallLine(BXW, TN, WX, TN, y0, y1, 'brick', f === 0 ? [[THEATRE_DOOR1 - BXW, 2.0, 2.5]] : [], EXT);   // theatre: front exit (1F)
   wallLine(WX, TN, WX, -BZ, y0, y1, 'brick', [], EXT);
   wallLine(WX, -BZ, P1[0], -BZ, y0, y1, 'brickWin', f === 2 ? [[SIDE_X - WX, 3, 2.7]] : [], EXT);    // 3F side entrance
   wallLine(BXW, TN, BXW, TZ1, y0, y1, 'brick', f === 0 ? [[BS_DOOR - TN, 1.8, 2.6]] : [], EXT);     // back-stage door
@@ -1185,13 +1213,15 @@ function furnish(s, w, d, P, y, doorU){
   // a model (table / chair) at (u, v) whose front (+z of the model) faces local direction (du, dv)
   const model = (k, u, v, du, dv) => { const [x, z] = P(u, v), [x2, z2] = P(u + du, v + dv); FURN[k].push([x, y, z, Math.atan2(x2 - x, z2 - z) + (k === 'chair' ? Math.PI : 0)]); };   // the chair model's seat faces -z
   if (s.k === 'club'){
-    const variant = Math.floor(rand()*3), cu = w/2, cv = 5.7;
-    // meeting table: two CC0 wooden tables pushed together, plastic chairs around it (chairs are low: you can hop on them)
+    const variant = Math.floor(rand()*3), cu = w/2, cv = Math.min(5.7, d/2);
+    // meeting table: two CC0 wooden tables pushed together (1.13 × 1.41 m), plastic chairs (0.64 m wide) around it with a gap:
+    // two on each long side at ±0.42, one at each end. The whole set fills SET (u, v half sizes); clutter below avoids it.
+    const SET = [1.5, 1.65], free = (u0, v0, u1, v1) => u1 < cu - SET[0] || u0 > cu + SET[0] || v1 < cv - SET[1] || v0 > cv + SET[1];
     for (const dv of [-0.355, 0.355]) model('table', cu, cv + dv, 0, 1);
     colL(cu - 0.57, cv - 0.71, cu + 0.57, cv + 0.71, 0.78);
-    for (const [du, dv, fu, fv] of [[-0.3, -1.25, 0, 1], [0.3, -1.25, 0, 1], [-0.3, 1.25, 0, -1], [0.3, 1.25, 0, -1], [-1.0, 0, 1, 0], [1.0, 0, -1, 0]]){
+    for (const [du, dv, fu, fv] of [[-0.42, -1.25, 0, 1], [0.42, -1.25, 0, 1], [-0.42, 1.25, 0, -1], [0.42, 1.25, 0, -1], [-1.05, 0, 1, 0], [1.05, 0, -1, 0]]){
       if (rand() < 0.15) continue;
-      const a = (rand() - 0.5)*0.5, ca = Math.cos(a), sa = Math.sin(a);
+      const a = (rand() - 0.5)*0.24, ca = Math.cos(a), sa = Math.sin(a);
       model('chair', cu + du, cv + dv, fu*ca - fv*sa, fu*sa + fv*ca);
       const [x, z] = P(cu + du, cv + dv); col(circlePts(x, z, 0.24, 6), y, y + 0.45, {cam:false});
     }
@@ -1201,10 +1231,11 @@ function furnish(s, w, d, P, y, doorU){
     { const [a0, a1] = [P(0.3, d - 0.6), P(2.6, d - 0.6)], [nx, nz] = [P(0, -1)[0] - P(0, 0)[0], P(0, -1)[1] - P(0, 0)[1]];
       for (const yy of [0.1, 0.55, 1.0, 1.45]) bookRow(...a0, ...a1, y + yy, nx, nz); }
     fb(w - 2.3, d - 0.55, w - 0.3, d - 0.1, 1.85, 'metal');                     // lockers
-    if (clear(w - 1, w, 2.6)) fb(w - 0.95, 2.8, w - 0.15, 5.0, 0.85, 'sofa');    // couch
-    if (variant >= 1){ fb(w/2 - 0.4, d - 1.6, w/2 + 0.4, d - 0.8, 0.6, 'box'); fb(w/2 - 0.3, d - 1.5, w/2 + 0.3, d - 0.9, 0.5, 'box', 0.6); }
-    if (variant === 2){ fb(0.3, 7, 1.1, 9.5, 0.76, 'wood'); fb(w - 1.1, 7.5, w - 0.3, 9.8, 1.1, 'box'); }
-    if (variant === 0){ fb(0.3, 6.5, 1.0, 10.5, 1.4, 'metal'); }
+    const fbF = (u0, v0, u1, v1, h, key, yb) => { if (free(u0, v0, u1, Math.min(v1, d - 0.15))) fb(u0, v0, u1, v1, h, key, yb); };
+    if (clear(w - 1, w, 2.6)) fbF(w - 0.95, 2.8, w - 0.15, 5.0, 0.85, 'sofa');   // couch
+    if (variant >= 1){ fbF(w/2 - 0.4, d - 1.6, w/2 + 0.4, d - 0.8, 0.6, 'box'); fbF(w/2 - 0.3, d - 1.5, w/2 + 0.3, d - 0.9, 0.5, 'box', 0.6); }
+    if (variant === 2){ fbF(0.3, 7, 1.1, 9.5, 0.76, 'wood'); fbF(w - 1.1, 7.5, w - 0.3, 9.8, 1.1, 'box'); }
+    if (variant === 0){ fbF(0.3, 6.5, 1.0, 10.5, 1.4, 'metal'); }
   } else if (s.k === 'post'){
     fb(0.6, 4.2, w - 0.6, 4.9, 1.05, 'counter');                                // service counter with a glass screen on top
     { const [ax, az] = P(0.6, 4.55), [bx, bz] = P(w - 0.6, 4.55); put(prismGeo(rect(Math.min(ax, bx), Math.min(az, bz) - 0.02, Math.max(ax, bx), Math.max(az, bz) + 0.02), y + 1.05, y + 2.25), 'glass', false); }
@@ -1314,7 +1345,14 @@ function addDoor(F, u, w, h, y, o = {}){
   const pts = [F.P(u - w/2, -0.07), F.P(u + w/2, -0.07), F.P(u + w/2, 0.07), F.P(u - w/2, 0.07)];
   DOORS.push({hinge, y, w, h, thC: Math.atan2(-d[1], d[0]), thO: Math.atan2(-n[1], n[0]), t: 0, target: 0,
     c: F.P(u, 0), col: col(pts, y, y + h - 0.02), color: o.color ?? 0x8a5f3c});
-  if (o.open){ const D = DOORS[DOORS.length - 1]; D.t = D.target = 1; D.col.off = true; }
+  const D = DOORS[DOORS.length - 1];
+  if (o.open){ D.t = D.target = 1; D.col.off = true; }
+  return D;
+}
+// double door: two leaves hinged at the outer ends, opened / closed together
+function doubleDoor(F, u, w, h, y, o = {}){
+  const a = addDoor(F, u - w/4, w/2, h, y, o), b = addDoor({P:(uu, v) => F.P(2*u - uu, v)}, u - w/4, w/2, h, y, o);
+  a.pair = b; b.pair = a;
 }
 function room(f, x0, z0, x1, z1, front, s){
   const y = L[f], ceil = y + H - SL, F = FRONT[front](x0, z0, x1, z1);
@@ -1862,49 +1900,149 @@ room(2, EX, 14, BXE, BZ, 'w', {n:'學生諮商中心 Counselling Center', k:'cou
 // --- 側門 side entrance hall (3F): theatre doors on the west wall, exit door on the north wall ---
 sign('活動中心 側門', 'Side Exit', SIDE_X, L[2] + 3.0, -BZ + 0.16, 0, 3, 0.6, '#2f4f63');
 
-// --- 演藝廳 Theatre (1F–4F tall; enter at 3F from the side entrance hall, raked seats down to a 1F stage, back stage behind) ---
+// --- 演藝廳 Theatre — from Kai's photos + the official stage plan (舞台平面圖) and seat chart (觀眾席) in student_activity_center/演藝廳/ ---
+// Along x (stage west, back wall east): back-stage extension (storage, freight lift, outside door) | stage 13.6 m deep behind the
+// 12.7 m proscenium (main curtain, legs, backdrop) | curved apron 5.7 m with steps on both sides | front cross-aisle (1F doors) |
+// 14 raked rows (blocks of 8 | 12 | 8 seats, the north block's first three rows shorter) | rear cross-aisle at 2F (door to corridor 1)
+// under the balcony, control room behind it | balcony: 5 rows, entered at the back from the 3F side hall (double door, vertical signs).
+// Warm wood-panelled walls, white ceiling with downlights, projection screens beside the stage.
 {
-  const top = L[4] - SL, Z0 = TN, AISLES = [[-34, -32], [-24, -22]], DZ = (AISLES[1][0] + AISLES[1][1])/2, XB = WX - 3, SY = 1.0;
+  const top = L[4] - SL, Z0 = TN, ZI0 = TN + 0.15, ZI1 = TZ1 - 0.15, SY = 1.0, OPN = [-33.6, -20.9], OH = 9.5, APX = -50.7;
+  const NR = 14, ROW = 0.95, RISE = 0.27, ROW0 = -47, RA0 = ROW0 + NR*ROW, CRX = -30.3, XB = WX - 3, DZ = -23.3;
+  const SEAT = 0.55, SB = [[-36.25, 8, 'n'], [-30.55, 12, ''], [-22.65, 8, 's']];   // seat blocks: z start, seats, side
+  const SEAT_C = 0xa84b3e, SEAT_B = 0x6e2c25, ARM = 0x4a3324;
+  const p = (k, x, y, z, sx, sy, sz, c, r = 0, t = 0, tilt = 0, glow = 0) => prop(k, x, y, z, sx, sy, sz, c, r, t, tilt, glow);
+  // --- walls: 3F double door from the side hall (vertical 演藝廳 plaques), 1F front doors (corridor 1 + outside), 2F rear door ---
   wseg(WX, -BZ, WX, TZ1, 0, L[2], 'wallB');
   wallLine(WX, -BZ, WX, TZ1, L[2], top, 'wallB', [[DZ + BZ, 2.2, 2.6]]);
-  wseg(BXW, TZ1, WX, TZ1, 0, top, 'wallB');
-  floorF(rect(BXW, Z0, WX, TZ1), 0.02, 'carpet');
-  boxS(XB, Z0 + 0.15, WX - 0.13, TZ1 - 0.13, 0, L[2], 'carpet');       // back cross-aisle at 3F level
-  const NR = 22, ROW = (XB - SX - 1.5) / NR, RISE = L[2] / NR;
-  const blocks = [[Z0 + 0.6, AISLES[0][0]], [AISLES[0][1], AISLES[1][0]], [AISLES[1][1], TZ1 - 0.6]];
-  for (let k = 1; k <= NR; k++){
-    const xb = XB - ROW*(k - 1), xa = xb - ROW, t = L[2] - RISE*k;
-    if (t > 0.05) boxS(xa, Z0 + 0.15, xb, TZ1 - 0.13, 0, t, 'carpet');
-    for (const [z0, z1] of blocks){
-      boxS(xa + 0.1, z0, xa + 0.5, z1, t, t + 0.45, 'seat', {cam:false});
-      boxS(xa + 0.1, z0, xa + 0.18, z1, t + 0.45, t + 0.9, 'seat', {noCol:true});
-    }
+  wallLine(BXW, TZ1, WX, TZ1, 0, L[1], 'wallB', [[THEATRE_DOOR1 - BXW, 2.0, 2.5]]);
+  wallLine(BXW, TZ1, WX, TZ1, L[1], top, 'wallB', [[THEATRE_DOOR2 - BXW, 2.0, 2.5]]);
+  doubleDoor({P:(u, v) => [WX - v, -BZ + u]}, DZ + BZ, 2.2, 2.6, L[2], {color:0x6a3523});
+  doubleDoor({P:(u, v) => [BXW + u, TZ1 - v]}, THEATRE_DOOR1 - BXW, 2.0, 2.5, 0, {color:0x6a3523});
+  doubleDoor({P:(u, v) => [BXW + u, TZ1 - v]}, THEATRE_DOOR2 - BXW, 2.0, 2.5, L[1], {color:0x6a3523});
+  doubleDoor({P:(u, v) => [BXW + u, TN + v]}, THEATRE_DOOR1 - BXW, 2.0, 2.5, 0, {color:0x6a3523});
+  for (const dz of [-1.75, 1.75]) signV('演藝廳', WX + 0.16, L[2] + 1.45, DZ + dz, Math.PI/2, 0.5, 1.9, '#4a2417', '#e6c37a');
+  sign('Theatre', '', WX + 0.16, L[2] + 2.95, DZ, Math.PI/2, 1.6, 0.36, '#4a2417', '#e6c37a');
+  for (const [x, y] of [[THEATRE_DOOR1, 0], [THEATRE_DOOR2, L[1]]]){
+    sign('演藝廳 入口', y ? 'Theatre · 2F seats' : 'Theatre · front seats', x, y + 2.85, TZ1 + 0.16, 0, 2.2, 0.5, '#4a2417', '#e6c37a');
+    for (const dx of [-1.45, 1.45]) signV('演藝廳', x + dx, y + 1.35, TZ1 + 0.16, 0, 0.45, 1.7, '#4a2417', '#e6c37a');
   }
-  // stage (BSX..SX, 1 m high) with a proscenium wall at SX, steps up from the audience at both ends
-  const S0 = Z0 + 3, S1 = TZ1 - 3;
-  boxS(BSX, Z0 + 0.15, SX, TZ1 - 0.15, 0, SY, 'stage');
-  for (const z of [S0 + 0.4, S1 - 2.2]) boxS(SX, z, SX + 1.2, z + 1.8, 0, 0.5, 'stage');
-  put(prismGeo(rect(SX - 0.2, Z0 + 0.15, SX + 0.2, S0), SY, top), 'wallB'); put(prismGeo(rect(SX - 0.2, S1, SX + 0.2, TZ1 - 0.15), SY, top), 'wallB');
-  col(rect(SX - 0.2, Z0 + 0.15, SX + 0.2, S0), SY, top); col(rect(SX - 0.2, S1, SX + 0.2, TZ1 - 0.15), SY, top);
-  put(prismGeo(rect(SX - 0.2, S0, SX + 0.2, S1), 10, top), 'wallB');
-  put(prismGeo(rect(SX - 0.6, S0, SX - 0.5, S0 + 3), SY, 9.5), 'curtainR'); put(prismGeo(rect(SX - 0.6, S1 - 3, SX - 0.5, S1), SY, 9.5), 'curtainR');
-  // back stage: behind a wall at BSX (wing doors at both ends), same floor level as the stage, ramp down to the outside door
-  wallLine(BSX, Z0, BSX, TZ1, SY, top, 'wallB', [[3, 2.4, 3], [TZ1 - Z0 - 3, 2.4, 3]]);
-  put(prismGeo(rect(BSX + 0.15, Z0 + 5, BSX + 0.25, TZ1 - 5), SY, 9), 'curtainR');
-  boxS(BXW + 3.5, Z0 + 0.15, BSX, TZ1 - 0.15, 0, SY, 'wood');
-  boxS(BXW, Z0 + 0.15, BXW + 3.5, BS_DOOR - 1.2, 0, SY, 'wood'); boxS(BXW, BS_DOOR + 1.2, BXW + 3.5, TZ1 - 0.15, 0, SY, 'wood');
+  sign('演藝廳 出口', 'Theatre Exit', THEATRE_DOOR1, 2.85, TN - 0.16, Math.PI, 2.2, 0.5, '#4a2417', '#e6c37a');
+  // wood-panelled side walls with vertical ribs (the angled panels in the photos); dark slats on the back wall
+  const panelZ = (z, x0, x1, y0, y1, gaps = []) => {
+    let x = x0;
+    for (const [gx, gw, gh] of gaps.sort((a, b) => a[0] - b[0])){
+      if (gx - gw/2 > x) put(prismGeo(rect(x, z - 0.02, gx - gw/2, z + 0.02), y0, y1), 'woodP', false);
+      put(prismGeo(rect(gx - gw/2, z - 0.02, gx + gw/2, z + 0.02), y0 + gh, y1), 'woodP', false);
+      x = gx + gw/2;
+    }
+    if (x < x1) put(prismGeo(rect(x, z - 0.02, x1, z + 0.02), y0, y1), 'woodP', false);
+  };
+  panelZ(ZI0 - 0.01, SX, WX - 0.13, 0, top, [[THEATRE_DOOR1, 2.0, 2.5]]);
+  panelZ(ZI1 + 0.01, SX, WX - 0.13, 0, L[1], [[THEATRE_DOOR1, 2.0, 2.5]]);
+  panelZ(ZI1 + 0.01, SX, WX - 0.13, L[1], top, [[THEATRE_DOOR2, 2.0, 2.5]]);
+  for (let x = SX + 2.5; x < WX - 1; x += 3.3) for (const [z, s] of [[ZI0, 1], [ZI1, -1]]){
+    const y0 = x > RA0 - 0.5 ? (x > XB ? L[2] + 2.7 : L[1] + 2.6) : 2.7;
+    if (Math.abs(x - THEATRE_DOOR1) < 1.6 || Math.abs(x - THEATRE_DOOR2) < 1.6) continue;
+    boxS(x - 0.18, Math.min(z, z + s*0.22), x + 0.18, Math.max(z, z + s*0.22), y0, top, 'woodP', {cam:false, noCol:true});
+  }
+  { const x = WX - 0.15; put(prismGeo(rect(x - 0.02, ZI0, x + 0.02, DZ - 1.1), L[2], top), 'woodD', false); put(prismGeo(rect(x - 0.02, DZ + 1.1, x + 0.02, ZI1), L[2], top), 'woodD', false);
+    put(prismGeo(rect(x - 0.02, DZ - 1.1, x + 0.02, DZ + 1.1), L[2] + 2.6, top), 'woodD', false); }
+  // white ceiling with downlights
+  put(prismGeo(rect(SX, ZI0, WX - 0.13, ZI1), top - 0.04, top), 'ceilW', false);
+  for (let x = SX + 1.5; x < WX - 0.5; x += 3) for (let z = ZI0 + 1.6; z < ZI1; z += 3) p('cyl', x, top - 0.06, z, 0.28, 0.03, 0.28, 0xfff6dc, 0, 0, 0, 2.0);
+  // --- floor, front cross-aisle, raked rows with real seats (folded-up seat, back, armrests), rear cross-aisle at 2F ---
+  floorF(rect(BXW, Z0, WX, TZ1), 0.02, 'carpetG');
+  const seatRow = (xb, y, short = 0) => {
+    for (const [z0, n, side] of SB){
+      const skip = side === 'n' ? short : 0, za = z0 + skip*SEAT, zb = z0 + n*SEAT;
+      for (let i = skip; i < n; i++){
+        const zc = z0 + (i + 0.5)*SEAT;
+        p('box', xb - 0.14, y + 0.4, zc, 0.5, 0.62, 0.07, SEAT_C, -Math.PI/2, 0, -0.12);
+        p('box', xb - 0.1, y + 0.36, zc, 0.5, 0.64, 0.03, SEAT_B, -Math.PI/2, 0, -0.12);
+        p('box', xb - 0.33, y + 0.3, zc, 0.46, 0.42, 0.09, SEAT_C, -Math.PI/2, 0, 0.1);
+      }
+      for (let i = skip; i <= n; i++){ const z = z0 + i*SEAT; p('box', xb - 0.33, y, z, 0.5, 0.6, 0.05, ARM); p('box', xb - 0.36, y + 0.6, z, 0.46, 0.05, 0.07, 0x3a281c); }
+      col(rect(xb - 0.62, za, xb - 0.04, zb), y, y + 0.45, {cam:false});
+    }
+  };
+  for (let k = 1; k <= NR; k++){
+    const xa = ROW0 + (k - 1)*ROW, xb = xa + ROW, y = k*RISE;
+    boxS(xa, ZI0, xb, ZI1, 0, y, 'carpetG');
+    p('box', xa + 0.01, y - 0.015, (ZI0 + ZI1)/2, 0.03, 0.03, ZI1 - ZI0, 0xb9b39f);                         // step nosing
+    seatRow(xb, y, k <= 3 ? 4 - k : 0);
+  }
+  boxS(RA0, ZI0, WX - 0.13, ZI1, 0, L[1], 'carpetG');
+  // control room under the 3F aisle: dark wood slats, a row of windows
+  boxS(CRX, ZI0, WX - 0.13, ZI1, L[1], L[2] - 0.5, 'woodD');
+  for (const z of [-35.5, -31.5, -27.5, -23.5, -19.5]){ p('box', CRX - 0.02, L[1] + 0.9, z, 0.03, 0.75, 1.6, 0x9fb8c8, 0, 0, 0, 0.5); p('box', CRX - 0.03, L[1] + 0.85, z, 0.02, 0.85, 1.7, 0x2b2d30); }
+  // balcony: 3F aisle at the back, 5 rows stepping down toward the stage, curved wood front with a brass rail
+  boxS(XB, ZI0, WX - 0.13, ZI1, L[2] - 0.5, L[2], 'carpetG');
+  for (let b = 0; b < 5; b++){
+    const xb = XB - b, xa = xb - 1, y = L[2] - 0.4*(b + 1);
+    boxS(xa, ZI0, xb, ZI1, y - 0.3, y, 'carpetG');                                    // thin slab: 1.8 m headroom over the rear rows
+    seatRow(xb, y);
+  }
+  { const xf = XB - 5, y = L[2] - 2.0;
+    boxS(xf - 0.3, ZI0, xf, ZI1, y - 0.6, y + 1.0, 'woodP');
+    bar([xf - 0.15, y + 1.05, ZI0], [xf - 0.15, y + 1.05, ZI1], 0.06, 'brass');
+    for (let z = ZI0 + 1; z < ZI1; z += 2) bar([xf - 0.15, y + 1.0, z], [xf - 0.15, y + 1.05, z], 0.03, 'brass');
+    for (let z = ZI0 + 2; z < ZI1; z += 3) p('cyl', xf + 1.5, y - 0.5, z, 0.2, 0.03, 0.2, 0xfff6dc, 0, 0, 0, 1.5);   // soffit lights
+  }
+  // --- stage: 1 m high, 13.6 m deep behind the proscenium; curved apron with steps at both sides ---
+  boxS(BSX, ZI0, SX, ZI1, 0, SY, 'stage');
+  { const zL = OPN[0], zR = OPN[1], R3 = 3, cx = APX - R3, pts = [[SX, zL], [cx, zL]];
+    for (let i = 1; i <= 8; i++){ const a = i/8*Math.PI/2; pts.push([cx + R3*Math.sin(a), zL + R3 - R3*Math.cos(a)]); }
+    for (let i = 0; i <= 8; i++){ const a = i/8*Math.PI/2; pts.push([cx + R3*Math.cos(a), zR - R3 + R3*Math.sin(a)]); }
+    pts.push([SX, zR]);
+    solid(pts, 0, SY - 0.04, 'woodP'); solid(pts, SY - 0.04, SY, 'stage', {noCol:true});
+    for (const z of [-31, -28.5, -26, -23.5]) p('box', APX + 0.02, 0.2, z, 0.03, 0.22, 0.32, 0x151515);        // vents in the apron front
+    for (const [z0, z1] of [[zL - 3, zL], [zR + 3, zR]]){                                                   // side steps
+      const lo = Math.min(z0, z1), hi = Math.max(z0, z1), h = z => SY*Math.max(0, Math.min(1, (z1 > z0 ? z - z0 : z0 - z)/3));
+      ramp(rect(-55.6, lo, -53.9, hi), 0, (x, z) => h(z));
+      for (let i = 0; i < 6; i++){ const za = z0 + (z1 - z0)*i/6, zb = z0 + (z1 - z0)*(i + 1)/6; put(prismGeo(rect(-55.6, Math.min(za, zb), -53.9, Math.max(za, zb)), 0, SY*(i + 1)/6), 'carpetG'); }
+    }
+    zone('舞台 Stage', 0, SX, zL, APX, zR, null, 0.6, L[4]);
+  }
+  // proscenium (12.7 m × 8.5 m opening), main red curtain gathered at the sides + valance, black legs and backdrop
+  boxS(SX - 0.4, ZI0, SX, OPN[0], SY, top, 'woodP'); boxS(SX - 0.4, OPN[1], SX, ZI1, SY, top, 'woodP');
+  put(prismGeo(rect(SX - 0.4, OPN[0], SX, OPN[1]), OH, top), 'woodP'); col(rect(SX - 0.4, OPN[0], SX, OPN[1]), OH, top);
+  for (const [a, b] of [[OPN[0], OPN[0] + 1.8], [OPN[1] - 1.8, OPN[1]]]) put(prismGeo(rect(SX - 0.8, a, SX - 0.45, b), SY, OH), 'curtainR', false);
+  put(prismGeo(rect(SX - 0.8, OPN[0], SX - 0.45, OPN[1]), OH - 1.1, OH), 'curtainR', false);
+  for (const x of [-60.1, -63.6]){
+    for (const [a, b] of [[OPN[0] - 2.4, OPN[0] + 0.4], [OPN[1] - 0.4, OPN[1] + 2.4]]) put(prismGeo(rect(x - 0.1, a, x + 0.1, b), SY, OH + 1), 'curtainK', false);
+    put(prismGeo(rect(x - 0.1, OPN[0] - 2.4, x + 0.1, OPN[1] + 2.4), OH - 1.2, OH + 1.5), 'curtainK', false);
+    bar([x - 0.3, 12.5, ZI0 + 1], [x - 0.3, 12.5, ZI1 - 1], 0.08, 'steel');                                  // lighting bar
+    for (let z = OPN[0]; z <= OPN[1]; z += 1.6) p('cyl', x - 0.3, 12.1, z, 0.22, 0.35, 0.22, 0x1b1b1b, 0, 0, 0.5);
+  }
+  put(prismGeo(rect(-66.3, OPN[0] - 2.0, -66.1, OPN[1] + 2.0), SY, OH + 1.5), 'curtainK', false);         // backdrop (背景幕)
+  boxS(-62.8, -27.65, -62.2, -26.85, SY, SY + 1.15, 'dark', {cam:false});                                  // lectern with the school emblem
+  p('cyl', -62.19, SY + 0.75, -27.25, 0.25, 0.25, 0.01, 0xd9c48a, 0, 0, Math.PI/2, 0.2);
+  for (const z of [OPN[0] - 0.5, OPN[1] + 0.5]) p('box', SX + 0.25, 3.2, z, 0.4, 0.6, 0.4, 0x151515);          // speakers on the proscenium
+  // projection screens on the side walls beside the stage
+  for (const [z, s] of [[ZI0 + 0.08, 1], [ZI1 - 0.08, -1]]){ p('box', -52, 3.6, z, 5.2, 3.4, 0.03, 0x111111); p('box', -52, 3.7, z + s*0.02, 5.0, 3.2, 0.03, 0xf4f4f2, 0, 0, 0, 0.25); }
+  // --- back stage: wing walls, extension with storage room (儲藏室), freight lift (貨梯) and the outside door via a ramp ---
+  wseg(BSX, ZI0, BSX, OPN[0], SY, top, 'wallB'); wseg(BSX, OPN[1], BSX, ZI1, SY, top, 'wallB');
+  wseg(BXW, OPN[0], BSX, OPN[0], 0, top, 'wallB'); wseg(BXW, OPN[1], BSX, OPN[1], 0, top, 'wallB');
+  boxS(BXW + 3.5, OPN[0], BSX, OPN[1], 0, SY, 'wood');
+  boxS(BXW, OPN[0], BXW + 3.5, BS_DOOR - 1.2, 0, SY, 'wood'); boxS(BXW, BS_DOOR + 1.2, BXW + 3.5, OPN[1], 0, SY, 'wood');
   { const top2 = x => SY * Math.max(0, Math.min(1, (x - BXW) / 3.5)), r = rect(BXW, BS_DOOR - 1.2, BXW + 3.5, BS_DOOR + 1.2);
     ramp(r, 0, x => top2(x));
     for (let i = 0; i < 6; i++){ const xa = BXW + 3.5*i/6, xb = BXW + 3.5*(i+1)/6; put(prismGeo(rect(xa, BS_DOOR - 1.2, xb, BS_DOOR + 1.2), 0, top2((xa + xb)/2)), 'wood'); } }
-  // back-stage clutter: costume racks, flight cases, scenery flats (hiding spots)
-  const y = SY;
-  for (const [x0, z0, x1, z1, h, k] of [[-75.5, -38.8, -71, -38, 1.8, 'metal'], [-69.5, -29, -68, -27, 1.2, 'box'], [-74, -24, -72.4, -22.4, 1.0, 'box'], [-73.2, -24.6, -71.6, -23, 0.9, 'box'],
-                                        [-75.6, -20, -75.1, -16, 2.6, 'wood'], [-73, -16.5, -71, -15.7, 1.7, 'metal'], [-75.5, -30.5, -74.8, -27.5, 1.9, 'dark']])
-    boxS(x0, z0, x1, z1, y, y + h, k, {cam:false});
+  { const y = SY, SZ = -29.0, LZ = -25.8, SXR = -71.4, LXR = -71.2;
+    wseg(SXR, OPN[0], SXR, SZ, y, y + 3.4, 'wallB'); wallLine(BXW, SZ, SXR, SZ, y, y + 3.4, 'wallB', [[2.3, 1.2, 2.3]], {lintel:'wallB'});
+    addDoor({P:(u, v) => [BXW + u, SZ - v]}, 2.3, 1.2, 2.3, y);
+    boxS(BXW, OPN[0], SXR, SZ, y + 3.4, y + 3.6, 'wallB');
+    for (const [x0, z0, x1, z1, h, k] of [[-75.7, -33.4, -72.5, -32.8, 2.2, 'metal'], [-75.7, -31.5, -75.0, -29.4, 2.2, 'metal'], [-72.8, -31.2, -71.8, -30.2, 1.0, 'box']]) boxS(x0, z0, x1, z1, y, y + h, k, {cam:false});
+    wseg(LXR, LZ, LXR, OPN[1], y, top, 'wallB'); wseg(BXW, LZ, LXR, LZ, y, top, 'wallB');
+    boxS(-75.0, LZ + 0.13, -72.4, LZ + 0.16, y, y + 2.6, 'steel', {noCol:true}); p('box', -73.7, y, LZ + 0.17, 0.03, 2.6, 0.03, 0x333333);
+    sign('貨梯', 'Freight Lift', -73.7, y + 3.0, LZ + 0.15, 0, 1.4, 0.4, '#2f4f63'); sign('儲藏室', 'Storage', -73.7, y + 2.7, SZ + 0.15, 0, 1.2, 0.36, '#2f4f63');
+    for (const [x0, z0, x1, z1, h, k] of [[-69.6, -38.8, -66.5, -38, 1.8, 'metal'], [-69.5, -18, -68, -16.5, 1.2, 'box'], [-69.6, -24, -68.2, -22.6, 1.0, 'box'], [-68.8, -35, -67.6, -33.8, 0.9, 'box']])
+      boxS(x0, z0, x1, z1, y, y + h, k, {cam:false});
+  }
   lamps(BXW, Z0, BSX, TZ1, L[1] - SL + 4);
-  lamps(-54, Z0, XB, TZ1, top);
-  sign('演藝廳', 'Theatre', WX + 0.16, L[2] + 3.0, DZ, Math.PI/2, 3.6, 0.8, '#7a1f2b');
   zone('演藝廳 Theatre', 0, SX, Z0, WX, TZ1, null, -0.5, L[4]);
+  zone('演藝廳 二樓座位 Balcony', 0, XB - 5.3, Z0, WX, TZ1, null, L[2] - 2.6, L[4]);
   zone('舞台 Stage', 0, BSX, Z0, SX, TZ1, null, -0.5, L[4]);
   zone('後台 Back Stage', 0, BXW, Z0, BSX, TZ1, null, -0.5, L[4]);
   for (const f of [0, 1, 2, 3]) mapAdd(f, rect(BXW, Z0, WX, TZ1), 'theatre');
@@ -1984,7 +2122,7 @@ const BIKE = {x0:BXE, x1:BXE + 5.6, z0:-11, z1:BZ - 0.5, h:3.4, step:3.9, colR:0
   const spots = [];
   const blocked = (x, z) =>
     (x > -82 && x < 60 && z > -36 && z < 36) || (x > -82 && x < -22 && z > -46 && z < -30) || (x > -46 && x < -28 && z > 30 && z < 40) || (x > -32 && x < 44 && z > 26 && z < 47) ||
-    (x > -25 && x < -13 && z > -56 && z < -26) || (x > -100 && x < -74 && z > -6 && z < 11) || (x > -90 && x < -74 && z > -37 && z < -29) || (x > 4 && x < 36 && z > -36 && z < -26) || (x > 28 && x < 66 && z > -42 && z < -4) ||
+    (x > -25 && x < -13 && z > -56 && z < -26) || (x > -100 && x < -74 && z > -6 && z < 11) || (x > -90 && x < -74 && z > -33 && z < -22) || (x > 4 && x < 36 && z > -36 && z < -26) || (x > 28 && x < 66 && z > -42 && z < -4) ||
     inLake(x, z, 4) || (x > ROAD[0] - 3 && x < ROAD[1] + 3) || Math.hypot(x - ENT[0], z - ENT[1]) < 16 || (x > 54 && x < 60) ||
     (x > BIKE.x0 - 1 && x < BIKE.x1 + 4 && z > BIKE.z0 - 2 && z < BIKE.z1 + 2);                           // no trees in the bike shelter
   for (let i = 0, n = 0; n < 160 && i < 8000; i++){
@@ -2054,7 +2192,7 @@ function doorUI(){
     if (D){ doorBtn.dataset.open = String(D.target); doorBtn.innerHTML = D.target ? '關門 Close door <kbd>E</kbd>' : '開門 Open door <kbd>E</kbd>'; }
   }
 }
-const toggleDoor = () => { if (doorNear) setDoor(doorNear, !doorNear.target); };
+const toggleDoor = () => { if (!doorNear) return; const o = !doorNear.target; setDoor(doorNear, o); if (doorNear.pair) setDoor(doorNear.pair, o); };
 doorBtn.addEventListener('click', e => { e.stopPropagation(); toggleDoor(); });
 doorBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); toggleDoor(); }, {passive:false});
 addEventListener('keydown', e => { if (e.code === 'KeyE' && !e.repeat) toggleDoor(); });
@@ -2565,8 +2703,12 @@ function runTests(){
     ['Outside → up the slope → 2F gallery', [-82, 0, 4.75], [[-30, 4.75], [-25, 4.75]], 4],
     ['Outside → 1F path beside the slope → atrium', [-82, 0, -0.25], [[-24.6, -0.25], [-24.6, -8], [-15, -8]], 0],
     ['Slope balustrade blocks a jump to the path', [-40, 3, 4.75], [[-40, 0]], 3.0, true],
-    ['3F side hall → theatre → down to the front row', [-20, 8, -14], [[-20, -23], [-29.5, -23], [-56, -23]], 0],
-    ['Front row → stage → back stage → outside', [-56, 0, -23], [[-56.4, -19.3], [-60, -19.3], [-66, -18], [-70, -18], [-71, -33], [-82, -33]], 0],
+    ['3F side hall → theatre double door → balcony aisle → front row of the balcony', [-20, 8, -14], [[-20, -23.3], [-29.5, -23.3], [-35.5, -23.3]], 6],
+    ['Balcony front: parapet blocks the drop', [-35.5, 6, -27], [[-40, -27]], 6, true],
+    ['Corridor 1 (2F) → rear door → aisle down the rows → front aisle → apron steps → stage → back stage → outside', [-32, 4, -13.5],
+      [[-32, -16.5], [-32, -23.3], [-48.5, -23.3], [-49, -17.3], [-54.75, -17.3], [-54.75, -21.6], [-58, -24], [-68, -27.4], [-74, -27.4], [-82, -27.4]], 0],
+    ['Corridor 1 (1F) → theatre front door → front aisle → north exit → outside', [-48.85, 0, -13.5], [[-48.85, -17], [-48.85, -38], [-48.85, -43]], 0],
+    ['Under the balcony: walk the rear aisle at 2F', [-32, 4, -17], [[-32, -37.5]], 4],
     ['Indoor stair 1F → 4F (via corridor 2)', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(3), [SQX, 17.5]], 12],
     ['Indoor stair 1F → 3F', [SQX, 0, 17.5], [[SQX, SQZ - 1], ...square(2), [SQX, 17.5]], 8],
     ['Stair door → restroom entrance → men (left) → past the cubicles', [-62.5, 0, 17.5], [[-62.5, 14.8], [-65.6, 14.8], [-64.2, 12.6], [-64.2, 8.5]], 0],
